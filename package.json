@@ -1,0 +1,16 @@
+{
+  "name": "wechat-codex-bridge",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Local bridge for routing WeChat messages to multiple Codex project threads.",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "stop": "powershell -ExecutionPolicy Bypass -File scripts/stop.ps1",
+    "status": "powershell -ExecutionPolicy Bypass -File scripts/status.ps1",
+    "check": "node --check src/server.js && node --check src/store.js && node --check src/router.js && node --check src/codex-runner.js && node --check src/wechat-client.js && node --check src/file-finder.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

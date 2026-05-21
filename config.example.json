@@ -1,0 +1,39 @@
+{
+  "host": "127.0.0.1",
+  "port": 18731,
+  "dryRun": true,
+  "statePath": "data/state.json",
+  "backupDir": "backups",
+  "logDir": "logs",
+  "allowedRoots": [
+    "F:\\01.AI",
+    "F:\\05.理财",
+    "C:\\Users\\lthir\\Documents\\Codex"
+  ],
+  "codex": {
+    "mode": "dry-run",
+    "command": "codex",
+    "args": [
+      "exec",
+      "--cwd",
+      "{cwd}",
+      "{message}"
+    ]
+  },
+  "weclaw": {
+    "mode": "dry-run",
+    "apiBase": "http://127.0.0.1:18011",
+    "allowedSessionIds": [
+      "filehelper"
+    ]
+  },
+  "defaults": {
+    "maxSendFiles": 10,
+    "imageExtensions": [
+      ".png",
+      ".jpg",
+      ".jpeg",
+      ".webp"
+    ]
+  }
+}

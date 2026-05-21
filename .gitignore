@@ -1,0 +1,11 @@
+node_modules/
+npm-debug.log*
+
+config.json
+
+data/*.pid
+data/*.state.json
+data/state.json
+
+backups/
+logs/
