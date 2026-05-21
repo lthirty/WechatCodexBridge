@@ -1,6 +1,7 @@
 param(
   [string]$BridgeUrl = 'http://127.0.0.1:18731/wechat/message',
   [int]$PollMilliseconds = 1200,
+  [int]$BridgeTimeoutSeconds = 900,
   [string]$SessionId = 'filehelper',
   [string]$DisplayName = '',
   [string]$ReplyPrefix = '[WCB]'
@@ -8,6 +9,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $FileHelperTitle = [string]::Concat([char]0x6587, [char]0x4EF6, [char]0x4F20, [char]0x8F93, [char]0x52A9, [char]0x624B)
+$ImageLabel = [string]::Concat([char]0x56FE, [char]0x7247)
+$ExpandLabel = [string]::Concat([char]0x5C55, [char]0x5F00)
 if ([string]::IsNullOrWhiteSpace($DisplayName)) {
   $DisplayName = $FileHelperTitle
 }
@@ -104,8 +107,8 @@ function Test-MessageText {
   param([string]$Text)
   if ([string]::IsNullOrWhiteSpace($Text)) { return $false }
   $value = $Text.Trim()
-  if ($value -eq '图片') { return $false }
-  if ($value -eq '展开') { return $false }
+  if ($value -eq $ImageLabel) { return $false }
+  if ($value -eq $ExpandLabel) { return $false }
   if ($value -match '^\d{1,2}:\d{2}$') { return $false }
   if ($value -match '^\d{4}[-/]\d{1,2}[-/]\d{1,2}') { return $false }
   if ($value.StartsWith($ReplyPrefix)) { return $false }
@@ -145,6 +148,57 @@ function Send-FileHelperText {
   [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
 }
 
+function Send-FileHelperFile {
+  param($Process, [string]$FilePath)
+
+  if (-not (Test-Path -LiteralPath $FilePath)) {
+    Write-JsonLine @{ event = 'file_missing'; file = $FilePath; time = (Get-Date).ToString('o') }
+    return
+  }
+
+  $rect = New-Object WcbFileHelperWin32+RECT
+  [WcbFileHelperWin32]::ShowWindow($Process.MainWindowHandle, 9) | Out-Null
+  [WcbFileHelperWin32]::SetForegroundWindow($Process.MainWindowHandle) | Out-Null
+  Start-Sleep -Milliseconds 350
+  [WcbFileHelperWin32]::GetWindowRect($Process.MainWindowHandle, [ref]$rect) | Out-Null
+  $width = $rect.Right - $rect.Left
+  $x = $rect.Left + [int]($width * 0.45)
+  $y = $rect.Bottom - 95
+  [WcbFileHelperWin32]::SetCursorPos($x, $y) | Out-Null
+  Start-Sleep -Milliseconds 100
+  [WcbFileHelperWin32]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+  Start-Sleep -Milliseconds 50
+  [WcbFileHelperWin32]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+  Start-Sleep -Milliseconds 250
+
+  $files = New-Object System.Collections.Specialized.StringCollection
+  [void]$files.Add((Resolve-Path -LiteralPath $FilePath).Path)
+  [System.Windows.Forms.Clipboard]::SetFileDropList($files)
+  [System.Windows.Forms.SendKeys]::SendWait('^v')
+  Start-Sleep -Milliseconds 800
+  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+  Write-JsonLine @{ event = 'file_sent'; file = $FilePath; time = (Get-Date).ToString('o') }
+}
+
+function Get-LocalFilesFromText {
+  param([string]$Text)
+
+  $files = New-Object System.Collections.Generic.List[string]
+  $pattern = '!\[[^\]]*\]\((?<path>[A-Za-z]:[/\\][^)]+)\)'
+  foreach ($match in [regex]::Matches($Text, $pattern)) {
+    $path = $match.Groups['path'].Value -replace '/', '\'
+    if (Test-Path -LiteralPath $path) {
+      $files.Add($path)
+    }
+  }
+  return @($files)
+}
+
+function Remove-LocalImageMarkdown {
+  param([string]$Text)
+  return ([regex]::Replace($Text, '!\[[^\]]*\]\([A-Za-z]:[/\\][^)]+\)', '[图片已作为文件发送]')).Trim()
+}
+
 function Invoke-Bridge {
   param([string]$Text)
   $body = @{
@@ -153,7 +207,7 @@ function Invoke-Bridge {
     text = $Text
   } | ConvertTo-Json
   $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
-  Invoke-RestMethod $BridgeUrl -Method Post -ContentType 'application/json; charset=utf-8' -Body $bytes -TimeoutSec 300
+  Invoke-RestMethod $BridgeUrl -Method Post -ContentType 'application/json; charset=utf-8' -Body $bytes -TimeoutSec $BridgeTimeoutSeconds
 }
 
 Write-JsonLine @{ event = 'started'; pid = $PID; bridgeUrl = $BridgeUrl; time = (Get-Date).ToString('o') }
@@ -189,6 +243,9 @@ while ($true) {
 
       for ($i = 0; $i -lt ($newCount - $oldCount); $i++) {
         Write-JsonLine @{ event = 'incoming'; text = $text; time = (Get-Date).ToString('o') }
+        if (-not $text.StartsWith('/')) {
+          Send-FileHelperText -Process $process -Text "$ReplyPrefix 已收到，正在发送到 Codex 处理..."
+        }
         try {
           $result = Invoke-Bridge -Text $text
           $reply = "$ReplyPrefix $($result.reply)"
@@ -206,7 +263,14 @@ while ($true) {
           }
           $reply = "$ReplyPrefix error: $message"
         }
-        Send-FileHelperText -Process $process -Text $reply
+        $files = Get-LocalFilesFromText -Text $reply
+        $textReply = Remove-LocalImageMarkdown -Text $reply
+        if (-not [string]::IsNullOrWhiteSpace($textReply)) {
+          Send-FileHelperText -Process $process -Text $textReply
+        }
+        foreach ($file in $files) {
+          Send-FileHelperFile -Process $process -FilePath $file
+        }
         Write-JsonLine @{ event = 'reply_sent'; sourceText = $text; reply = $reply; time = (Get-Date).ToString('o') }
       }
     }

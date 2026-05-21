@@ -16,6 +16,16 @@ $FileHelperTitle = [string]::Concat([char]0x6587, [char]0x4EF6, [char]0x4F20, [c
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $PidFile) | Out-Null
 
+function Write-PidFile {
+  param([string]$Path, [int]$ProcessId)
+  try {
+    Set-Content -LiteralPath $Path -Value $ProcessId -Encoding ASCII
+  } catch {
+    Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    [System.IO.File]::WriteAllText($Path, [string]$ProcessId, [System.Text.Encoding]::ASCII)
+  }
+}
+
 function Start-FileHelperGui {
   if (Test-Path -LiteralPath $GuiPidFile) {
     $guiPidText = (Get-Content -LiteralPath $GuiPidFile -Raw).Trim()
@@ -40,7 +50,7 @@ function Start-FileHelperGui {
     '-File', "`"$GuiScript`""
   )
   $guiProcess = Start-Process -FilePath 'powershell' -ArgumentList $args -WorkingDirectory $ProjectRoot -WindowStyle Hidden -RedirectStandardOutput $GuiOutLog -RedirectStandardError $GuiErrLog -PassThru
-  Set-Content -LiteralPath $GuiPidFile -Value $guiProcess.Id -Encoding ASCII
+  Write-PidFile -Path $GuiPidFile -ProcessId $guiProcess.Id
   Write-Output "FileHelper GUI adapter started. PID=$($guiProcess.Id)"
 }
 
@@ -49,7 +59,7 @@ if ($existing) {
   $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$($existing.OwningProcess)" -ErrorAction SilentlyContinue
   if ($proc -and $proc.CommandLine -like "*20.WechatCodexBridge*") {
     Write-Output "WechatCodexBridge already running. PID=$($existing.OwningProcess)"
-    Set-Content -LiteralPath $PidFile -Value $existing.OwningProcess -Encoding ASCII
+    Write-PidFile -Path $PidFile -ProcessId $existing.OwningProcess
     Start-FileHelperGui
     exit 0
   }
@@ -60,7 +70,7 @@ Push-Location $ProjectRoot
 try {
   npm run check
   $process = Start-Process -FilePath 'node' -ArgumentList "`"$ServerScript`"" -WorkingDirectory $ProjectRoot -WindowStyle Hidden -RedirectStandardOutput $OutLog -RedirectStandardError $ErrLog -PassThru
-  Set-Content -LiteralPath $PidFile -Value $process.Id -Encoding ASCII
+  Write-PidFile -Path $PidFile -ProcessId $process.Id
   Start-Sleep -Seconds 2
   $health = Invoke-RestMethod "http://127.0.0.1:$Port/health" -TimeoutSec 5
   Write-Output "WechatCodexBridge started. PID=$($process.Id) dryRun=$($health.dryRun)"

@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import os from "node:os";
 import path from "node:path";
 import { assertAllowedPath } from "./security.js";
 import { findLatestFiles } from "./file-finder.js";
@@ -19,6 +20,10 @@ export class Router {
 
     if (text.startsWith("/")) {
       return this.handleCommand(session, text);
+    }
+    const imageShortcut = this.tryLatestImageShortcut(session, text);
+    if (imageShortcut) {
+      return imageShortcut;
     }
     return this.askTarget(session, null, text);
   }
@@ -177,7 +182,43 @@ export class Router {
     for (const file of files) {
       await this.wechatClient.sendFile(session.id, file.path);
     }
-    return this.reply(session.id, `[${target.alias}] 已准备回传 ${files.length} 个文件\n${files.map((file) => path.basename(file.path)).join("\n")}`);
+    return this.reply(session.id, [
+      `[${target.alias}] 已准备回传 ${files.length} 个文件`,
+      ...files.map((file) => fileToMarkdown(file.path))
+    ].join("\n"));
+  }
+
+  tryLatestImageShortcut(session, text) {
+    if (!isLatestImageRequest(text)) {
+      return null;
+    }
+    const target = this.store.getActiveTarget(session.id);
+    if (!target) {
+      return null;
+    }
+    const count = Math.min(extractImageCount(text), this.config.defaults.maxSendFiles);
+    const roots = imageRootsForTarget(target);
+    const selected = [];
+    for (const root of roots) {
+      for (const file of findLatestFiles(root, this.config.defaults.imageExtensions, count)) {
+        if (!selected.some((existing) => existing.path === file.path)) {
+          selected.push(file);
+        }
+        if (selected.length >= count) {
+          break;
+        }
+      }
+      if (selected.length >= count) {
+        break;
+      }
+    }
+    if (!selected.length) {
+      return this.reply(session.id, `[${target.alias}] 没有找到最近生成的图片。可用 /sendlast 1 指定回传当前项目目录里的最近图片。`);
+    }
+    return this.reply(session.id, [
+      `[${target.alias}] 回传最近 ${selected.length} 张图片`,
+      ...selected.map((file) => fileToMarkdown(file.path))
+    ].join("\n"));
   }
 
   async unbind(session, args) {
@@ -240,4 +281,33 @@ function helpText() {
     "",
     "兼容旧命令：/targets = /list，/use = /ent"
   ].join("\n");
+}
+
+function isLatestImageRequest(text) {
+  return /(?:发|发送|传|回传).{0,8}(?:图|图片|照片|截图)/.test(text)
+    || /(?:图|图片|照片|截图).{0,8}(?:过来|给我|回传)/.test(text);
+}
+
+function extractImageCount(text) {
+  const match = text.match(/(\d+)\s*张/);
+  if (!match) {
+    return 1;
+  }
+  const count = Number.parseInt(match[1], 10);
+  return Number.isFinite(count) && count > 0 ? count : 1;
+}
+
+function imageRootsForTarget(target) {
+  const roots = [];
+  if (target.threadId) {
+    roots.push(path.join(os.homedir(), ".codex", "generated_images", target.threadId));
+  }
+  if (target.outputDir) {
+    roots.push(target.outputDir);
+  }
+  return roots;
+}
+
+function fileToMarkdown(filePath) {
+  return `![${path.basename(filePath)}](${filePath.replaceAll("\\", "/")})`;
 }
