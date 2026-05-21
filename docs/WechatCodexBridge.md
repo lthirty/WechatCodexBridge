@@ -31,8 +31,8 @@ GitHub 仓库：`https://github.com/lthirty/WechatCodexBridge`
 核心场景：
 
 - 把 `文件传输助手` 当作一个线程映射窗口。
-- 通过 `/list` 查看已有项目和对应线程。
-- 通过 `/ent 项目名/线程名` 进入一个线程映射。
+- 通过 `/list` 或 `/ls` 查看 Codex App 中已有项目和对应线程。
+- 通过 `/ent 项目名/线程名` 进入一个 Codex 线程映射，不需要加引号。
 - 通过 `/exit` 退出当前线程映射，回到控制模式。
 - 进入线程后，普通微信消息会向当前 Codex 目标发任务。
 - 通过 `/ask <alias>` 向指定目标临时发任务。
@@ -191,18 +191,21 @@ powershell -ExecutionPolicy Bypass -File .\scripts\stop.ps1
 
 `/list`
 
-列出文件传输助手当前可进入的项目线程，`*` 表示当前已经进入的线程。
+列出 Codex App 本地线程索引中的项目线程，`*` 表示当前已经进入的线程。
+
+兼容短命令：`/ls`
 
 兼容旧命令：`/targets`
 
 `/ent <项目名/线程名>`
 
-进入指定项目线程。进入后，文件传输助手中的普通消息都会发送到这个线程，线程回复也会回到文件传输助手。
+进入指定项目线程。进入后，文件传输助手中的普通消息会发送到这个线程，线程回复也会回到文件传输助手。
 
 示例：
 
 ```text
 /ent edu-main
+/ent 创意设计及验证
 ```
 
 兼容旧命令：`/use <alias>`
@@ -301,6 +304,7 @@ F:\01.AI\20.WechatCodexBridge\scripts\filehelper-gui.ps1
 - 忽略时间、图片、空文本和 `[WCB]` 前缀的本项目回复，避免自循环。
 - 把新增文本作为 `filehelper` 消息 POST 到 `http://127.0.0.1:18731/wechat/message`。
 - 把桥服务回复加上 `[WCB]` 前缀后粘贴发送回文件传输助手。
+- 当 `config.json` 设置 `dryRun=false` 且 `codex.mode=resume` 时，普通消息会通过 `codex exec resume <session_id> <prompt>` 真实进入对应 Codex session。
 
 安全边界：
 
@@ -476,8 +480,9 @@ F:\01.AI\20.WechatCodexBridge\backups
 |---|---|---|
 | HTTP 服务 | 已实现基础接口 | `src/server.js` |
 | 命令解析 | 已支持核心命令 | `src/router.js` |
+| Codex 线程索引 | 已读取 Codex App session index | `src/codex-index.js` |
 | 状态存储 | JSON + 自动备份 | `src/store.js` |
-| Codex 执行 | 默认 dry-run | `src/codex-runner.js` |
+| Codex 执行 | 支持 dry-run 和真实 resume | `src/codex-runner.js` |
 | 微信回发 | 默认 dry-run + filehelper 白名单 | `src/wechat-client.js` |
 | 文件回传 | 支持查找最新图片 | `src/file-finder.js` |
 | 一键启动 | 已实现 | `启动-WechatCodexBridge.cmd` |
@@ -500,7 +505,24 @@ F:\01.AI\20.WechatCodexBridge\backups
 
 当前服务状态：桥服务和 GUI 适配器均可由一键脚本管理。
 
-## 17. 近期优先级
+## 17. 真实双向验证记录
+
+验证时间：`2026-05-22 00:33`
+
+验证方式：在真实微信 `文件传输助手` 窗口发送 `/ent 创意设计及验证` 和普通文本消息，由 GUI 适配器读取并调用本地桥服务；桥服务通过 `codex exec resume 019e345f-dab8-78c2-bcb2-4c8eb0dca251` 把消息写入真实 Codex session；Codex 回复后由 GUI 适配器发回微信。
+
+验证结果：
+
+- `/ls` / `/list`：成功列出 Codex App 本地线程索引，包含 `创意设计及验证`、`入学通-主线程-派生1`、`成绩分析-主线程-派生1` 等。
+- `/ent 创意设计及验证`：成功进入真实 Codex session `019e345f-dab8-78c2-bcb2-4c8eb0dca251`，不需要双引号。
+- 微信消息 `WCB-REAL-003143`：在 Codex session 文件中以 `role=user` 记录。
+- Codex 回复 `WCB-REAL-003143 Codex已收到`：在同一 session 文件中以 assistant/final answer 记录。
+- 文件传输助手收到回传：`[WCB] [创意设计及验证] 完成\nWCB-REAL-003143 Codex已收到`。
+- 已按要求把阶段性验证通过摘要发送给微信联系人 `码趣`。
+
+结论：微信 `文件传输助手` 与 Codex session 已完成真实双向通信验证。
+
+## 18. 近期优先级
 
 1. 确认 weclaw 的真实发送 API 格式。
 2. 验证真实图片回发。
@@ -508,7 +530,7 @@ F:\01.AI\20.WechatCodexBridge\backups
 4. 确认 Codex CLI 是否能指定已有线程继续对话。
 5. 再考虑接入其他联系人或群聊。
 
-## 18. 版本记录
+## 19. 版本记录
 
 | 日期 | 版本 / 节点 | 说明 |
 |---|---|---|
@@ -518,3 +540,4 @@ F:\01.AI\20.WechatCodexBridge\backups
 | 2026-05-21 | 0.1.3 | 验证一键启动、状态检查、filehelper 白名单和一键关闭 |
 | 2026-05-21 | 0.1.4 | 增加文件传输助手线程映射模型：/list、/ent、/exit |
 | 2026-05-22 | 0.2.0 | 实现文件传输助手 GUI 交互闭环并完成真实窗口验证 |
+| 2026-05-22 | 0.3.0 | /list 读取 Codex App 线程索引，/ent 支持无引号，完成微信与 Codex session 真实双向验证 |

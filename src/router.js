@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { assertAllowedPath } from "./security.js";
 import { findLatestFiles } from "./file-finder.js";
+import { findCodexThread, listCodexThreads } from "./codex-index.js";
 
 export class Router {
   constructor({ config, store, codexRunner, wechatClient }) {
@@ -34,8 +35,9 @@ export class Router {
       case "/use":
         return this.enter(session, rest);
       case "/list":
+      case "/ls":
       case "/targets":
-        return this.targets(session);
+        return this.list(session);
       case "/status":
         return this.status(session);
       case "/ask":
@@ -70,29 +72,34 @@ export class Router {
   }
 
   async enter(session, args) {
-    const alias = args[0];
-    if (!alias) {
+    const query = args.join(" ").trim();
+    if (!query) {
       return this.reply(session.id, "用法：/ent <项目名/线程名>");
     }
-    this.store.setActiveTarget(session.id, alias);
+    const thread = findCodexThread(query);
+    if (!thread) {
+      return this.reply(session.id, `没有找到 Codex 线程：${query}\n先使用 /list 查看。`);
+    }
+    this.store.bindTarget(session.id, thread);
+    this.store.setActiveTarget(session.id, thread.alias);
     this.store.save("enter");
     const target = this.store.getActiveTarget(session.id);
     return this.reply(session.id, [
-      `已进入线程映射：${alias}`,
-      `之后文件传输助手中的普通消息会发送到该线程。`,
+      `已进入 Codex 线程：${target.alias}`,
+      `之后文件传输助手中的普通消息会通过 Codex CLI resume 发送到该线程。`,
       `cwd: ${target.cwd}`,
-      `thread: ${target.threadId || "(new)"}`
+      `thread: ${target.threadId}`
     ].join("\n"));
   }
 
-  async targets(session) {
-    const targets = this.store.getSessionTargets(session.id);
+  async list(session) {
+    const targets = listCodexThreads();
     if (!targets.length) {
-      return this.reply(session.id, "当前微信会话还没有绑定任何 Codex 目标。");
+      return this.reply(session.id, "没有找到 Codex App 线程索引。");
     }
-    const lines = targets.map((target) => {
-      const active = target.id === session.activeTargetId ? "*" : "-";
-      return `${active} ${target.alias} | ${target.cwd} | ${target.threadId || "(new)"}`;
+    const lines = targets.slice(0, 30).map((target, index) => {
+      const active = target.alias === this.store.getActiveTarget(session.id)?.alias ? "*" : "-";
+      return `${active} ${index + 1}. ${target.threadName} | ${target.id} | ${target.cwd}`;
     });
     return this.reply(session.id, lines.join("\n"));
   }
@@ -100,7 +107,7 @@ export class Router {
   async status(session) {
     const target = this.store.getActiveTarget(session.id);
     if (!target) {
-      return this.reply(session.id, "当前没有进入任何线程。先使用 /list 查看，再使用 /ent <项目名/线程名> 进入。");
+      return this.reply(session.id, "当前没有进入任何线程。先使用 /list 或 /ls 查看，再使用 /ent <项目名/线程名> 进入。");
     }
     return this.reply(session.id, [
       `session: ${session.id}`,
@@ -124,7 +131,7 @@ export class Router {
       ? this.store.getTargetForSession(session.id, alias)
       : this.store.getActiveTarget(session.id);
     if (!target) {
-      return this.reply(session.id, "没有找到可用目标。先使用 /list 查看，再使用 /ent <项目名/线程名> 进入。");
+      return this.reply(session.id, "没有找到可用目标。先使用 /list 或 /ls 查看，再使用 /ent <项目名/线程名> 进入。");
     }
     const jobId = crypto.randomUUID();
     const now = Date.now();
@@ -222,6 +229,7 @@ function helpText() {
   return [
     "命令：",
     "/list",
+    "/ls",
     "/ent <项目名/线程名>",
     "/exit",
     "/status",

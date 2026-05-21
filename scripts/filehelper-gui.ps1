@@ -153,7 +153,7 @@ function Invoke-Bridge {
     text = $Text
   } | ConvertTo-Json
   $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
-  Invoke-RestMethod $BridgeUrl -Method Post -ContentType 'application/json; charset=utf-8' -Body $bytes -TimeoutSec 60
+  Invoke-RestMethod $BridgeUrl -Method Post -ContentType 'application/json; charset=utf-8' -Body $bytes -TimeoutSec 300
 }
 
 Write-JsonLine @{ event = 'started'; pid = $PID; bridgeUrl = $BridgeUrl; time = (Get-Date).ToString('o') }
