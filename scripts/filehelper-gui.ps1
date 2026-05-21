@@ -111,6 +111,7 @@ function Test-MessageText {
   if ($value -eq $ExpandLabel) { return $false }
   if ($value -match '^\d{1,2}:\d{2}$') { return $false }
   if ($value -match '^\d{4}[-/]\d{1,2}[-/]\d{1,2}') { return $false }
+  if ($value -match '^\s*/?\[WCB\]') { return $false }
   if ($value.StartsWith($ReplyPrefix)) { return $false }
   return $true
 }
