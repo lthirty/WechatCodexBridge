@@ -715,7 +715,48 @@ Codex 项目/线程
 - 当前方案不会模拟键盘把微信文本敲进 Codex Desktop 输入框，避免破坏用户正在输入的内容。
 - Codex 对话框显示依赖 Desktop 对 session 文件和 `codex://threads/...` 深度链接的刷新；session 中的原始微信文本是实际落盘来源。
 
-## 27. 版本记录
+## 27. 暂停交接记录
+
+暂停时间：`2026-05-22 12:30 +08:00`
+
+当前结论：
+
+- 项目当前最新提交：`fe6d02c Refresh Codex thread while WeChat message runs`，已推送到 GitHub `lthirty/WechatCodexBridge`。
+- 当前能力已覆盖：`/ls` 按 Codex Desktop 当前侧边栏列项目/线程；`/ent 项目名/线程名` 或 `/ent 线程名` 进入线程；普通微信消息写入当前 Codex 线程；`/sendlast n` 回传最近图片；`/exit` 退出映射。
+- 微信原始消息显示链路已验证：`WCB-DISPLAY-120751 微信显示测试...` 已在目标线程 `019e345f-dab8-78c2-bcb2-4c8eb0dca251` 的 session 中出现为 `role=user` / `user_message`。
+- 为提升 Codex Desktop 可见性，任务运行期间会持续打开 `codex://threads/<threadId>`：开始立即刷新，随后每 5 秒刷新一次，最长 90 秒。
+- 为避免刷屏和卡死，微信回包默认截断到 `800` 字符，`codex exec` 默认 `180000` 毫秒超时。
+
+暂停时状态：
+
+- 已执行 `scripts/stop.ps1`。
+- `WechatCodexBridge` bridge 已停止。
+- `FileHelper GUI adapter` 已停止。
+- `http://127.0.0.1:18731/health` 已不可用，说明本地监听服务已关闭。
+- 未跟踪文件 `已生成图像 1.png` 不是本轮代码改动，保留未处理。
+
+主要遗留问题：
+
+- 当前线程 `创意设计及验证` 历史过长，真实 `codex exec resume` 可能接近或超过 180 秒；显示链路已验证，但回复链路在长线程上仍可能超时。
+- Codex Desktop UI Automation 不稳定，不能可靠直接抓取 Electron 对话内容；目前以 session 中 `role=user` / `user_message` 作为“已进入 Codex 对话上下文”的硬证据。
+- 云端 / 远程项目 `--------- / 测试` 不在本机 SQLite 线程记录中，当前 `/ls` 不显示；后续如需支持，需要接入 Codex 云端任务索引。
+
+后续恢复步骤：
+
+1. 进入目录：`F:\01.AI\20.WechatCodexBridge`。
+2. 启动服务：`powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1`。
+3. 检查状态：`powershell -ExecutionPolicy Bypass -File .\scripts\status.ps1`，或访问 `http://127.0.0.1:18731/health`。
+4. 在 `文件传输助手` 发送 `/ls`，确认项目列表。
+5. 发送 `/ent 创意设计及验证` 或 `/ent 项目名/线程名` 进入目标线程。
+6. 用短测试消息验证：`WCB-RESUME-<时间> 请只回复 OK`。
+
+下一步建议：
+
+- 优先优化回复链路：不要把长历史线程直接交给 `codex exec resume`，考虑新建轻量派生线程、摘要上下文或通过 Codex App 本地接口发送。
+- 保持微信测试只使用 `文件传输助手`，不要对其他好友或群做测试。
+- 如果继续开发，先从 `fe6d02c` 开始，确认 `npm run check` 通过后再改动。
+
+## 28. 版本记录
 
 | 日期 | 版本 / 节点 | 说明 |
 |---|---|---|
@@ -739,3 +780,4 @@ Codex 项目/线程
 | 2026-05-22 | 0.4.1 | 修复 FileHelper GUI adapter 中硬编码中文提示在 Windows PowerShell 下被按系统编码误读导致的乱码；真实文件传输助手验证 `WCB-ENC-TEST-104632` 的即时提示已恢复中文 |
 | 2026-05-22 | 0.4.2 | 增加 FileHelper 普通消息 10 分钟去重和执行中锁，避免同一微信气泡反复触发多个 Codex 任务；入队后多次刷新 Codex Desktop 线程以显示微信原始消息；微信回包默认截断到 800 字符，`codex exec` 默认 180 秒超时 |
 | 2026-05-22 | 0.4.3 | 普通微信消息处理期间持续刷新目标 Codex Desktop 线程：立即、1.2 秒、3.5 秒刷新，并在运行中每 5 秒刷新一次，最长 90 秒，提升“微信原始文本显示在 Codex 对话框”的稳定性 |
+| 2026-05-22 | pause | 暂停项目：记录当前能力、验证证据、遗留问题、恢复步骤，并停止 bridge 与 FileHelper GUI adapter |
