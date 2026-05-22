@@ -145,19 +145,23 @@ export class Router {
     });
     this.store.save("job_queued");
     await this.reply(session.id, `[${target.alias}] 已入队：${jobId}`);
+    let stopThreadRefresh = () => undefined;
     try {
       this.store.updateJob(jobId, { status: "running" });
       this.store.save("job_running");
-      scheduleCodexThreadRefresh(target);
+      stopThreadRefresh = startCodexThreadRefresh(target);
       const result = await this.codexRunner.enqueue(target, message);
       this.store.updateJob(jobId, { status: "completed", result });
       this.store.save("job_completed");
-      scheduleCodexThreadOpen(target, 2500);
       return this.reply(session.id, formatTargetCompletion(target, result, this.config));
     } catch (error) {
       this.store.updateJob(jobId, { status: "failed", result: error.message });
       this.store.save("job_failed");
       return this.reply(session.id, `[${target.alias}] 失败\n${formatReplyText(error.message, this.config)}`);
+    } finally {
+      stopThreadRefresh();
+      scheduleCodexThreadOpen(target, 0);
+      scheduleCodexThreadOpen(target, 2500);
     }
   }
 
@@ -464,10 +468,33 @@ function scheduleCodexThreadOpen(target, delayMs) {
   setTimeout(() => openCodexThread(target), delayMs).unref();
 }
 
-function scheduleCodexThreadRefresh(target) {
+function startCodexThreadRefresh(target) {
+  if (!target.threadId) {
+    return () => undefined;
+  }
+  let stopped = false;
+  let interval = null;
+  let deadline = null;
+  const stop = () => {
+    if (stopped) {
+      return;
+    }
+    stopped = true;
+    if (interval) {
+      clearInterval(interval);
+    }
+    if (deadline) {
+      clearTimeout(deadline);
+    }
+  };
   for (const delayMs of [0, 1200, 3500]) {
     scheduleCodexThreadOpen(target, delayMs);
   }
+  interval = setInterval(() => openCodexThread(target), 5000);
+  interval.unref();
+  deadline = setTimeout(stop, 90000);
+  deadline.unref();
+  return stop;
 }
 
 function openCodexThread(target) {

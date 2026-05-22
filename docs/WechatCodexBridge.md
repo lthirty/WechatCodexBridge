@@ -708,6 +708,7 @@ Codex 项目/线程
 - `src/router.js` 在普通消息入队后多次打开 `codex://threads/<threadId>`：立即、1.2 秒、3.5 秒各刷新一次，任务完成后再刷新一次。微信原始文本仍由 `codex exec resume <threadId> <message>` 写入同一个 Codex session，Desktop 通过深度链接刷新显示。
 - `src/router.js` 对微信回包做长度限制，默认最多 `800` 字符，避免长篇刷屏。
 - `src/codex-runner.js` 对 `codex exec` 增加超时，默认 `180000` 毫秒，避免单个任务长期卡住后续消息。
+- `src/router.js` 进一步改为任务运行期间每 5 秒刷新一次目标线程，最长 90 秒；这样即使 `codex exec resume` 在几十秒后才把微信文本写入 session，Codex Desktop 仍会持续重读目标线程。
 
 边界说明：
 
@@ -737,3 +738,4 @@ Codex 项目/线程
 | 2026-05-22 | 0.4.0 | `/list` 改为以 Codex Desktop 当前侧边栏为准：只显示当前可见本地项目和最新线程标题，过滤历史旧项目、旧标题和重复 thread |
 | 2026-05-22 | 0.4.1 | 修复 FileHelper GUI adapter 中硬编码中文提示在 Windows PowerShell 下被按系统编码误读导致的乱码；真实文件传输助手验证 `WCB-ENC-TEST-104632` 的即时提示已恢复中文 |
 | 2026-05-22 | 0.4.2 | 增加 FileHelper 普通消息 10 分钟去重和执行中锁，避免同一微信气泡反复触发多个 Codex 任务；入队后多次刷新 Codex Desktop 线程以显示微信原始消息；微信回包默认截断到 800 字符，`codex exec` 默认 180 秒超时 |
+| 2026-05-22 | 0.4.3 | 普通微信消息处理期间持续刷新目标 Codex Desktop 线程：立即、1.2 秒、3.5 秒刷新，并在运行中每 5 秒刷新一次，最长 90 秒，提升“微信原始文本显示在 Codex 对话框”的稳定性 |
