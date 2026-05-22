@@ -4,7 +4,7 @@
 
 当前版本支持 `文件传输助手` GUI 交互适配器：可以在微信窗口输入 `/ls`、`/list`、`/ent 创意设计及验证`、`/exit` 等命令，由本地桥服务处理并把 `[WCB]` 回复发回文件传输助手。
 
-`/ls` / `/list` 会读取 Codex App 的本地线程索引。开启本地 `config.json` 中 `dryRun=false` 且 `codex.mode=resume` 后，普通消息会通过 `codex exec resume <session_id>` 真实进入对应 Codex session。
+`/ls` / `/list` 会动态读取 Codex Desktop 当前侧边栏可见的本地项目和线程，不再把 SQLite 历史线程或同一 thread 的旧别名全部列出。开启本地 `config.json` 中 `dryRun=false` 且 `codex.mode=resume` 后，普通消息会通过 `codex exec resume <session_id>` 真实进入对应 Codex session。
 
 ## Quick Start
 

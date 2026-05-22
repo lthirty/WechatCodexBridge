@@ -191,7 +191,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\stop.ps1
 
 `/list`
 
-列出 Codex App 本地线程索引中的项目线程，`*` 表示当前已经进入的线程。
+列出 Codex Desktop 当前侧边栏可见的本地项目和线程。列表会动态读取 Codex 本地状态，不显示已归档线程，不把同一个 thread 的历史旧标题重复列出。
 
 兼容短命令：`/ls`
 
@@ -608,11 +608,12 @@ F:\01.AI\20.WechatCodexBridge\backups
   - `pinned-project-ids`：置顶项目优先。
   - `pinned-thread-ids`：置顶线程在项目内优先。
   - `project-order`：项目顺序尽量贴近 Codex Desktop 侧边栏。
-- 输出会合并列出 Codex Desktop 本地记录的全部项目：`state_5.sqlite` 线程库、`session_index.jsonl`、`config.toml` 项目段和 `.codex-global-state.json` 侧边栏状态都会参与索引。
+- 输出以 Codex Desktop 当前侧边栏为准：`electron-saved-workspace-roots` 和 `project-order` 决定当前可见项目，`state_5.sqlite` 和 `session_index.jsonl` 只用于补充这些项目下的当前线程。
 - `/list` 每次执行都会重新读取 Codex 本地状态，不缓存项目列表；删除或归档项目/线程后，下一次 `/ls` 应直接反映变化。
 - 已归档线程按 `state_5.sqlite.threads.archived=1` 过滤，不再显示；`config.toml` 只用于辅助识别项目父目录，不会单独把历史项目列出来。
-- 项目顺序仍优先参考 Codex Desktop：先列置顶项目，再列其他项目。
-- 没有线程的项目也会显示，并标记为 `暂无对话`。
+- 同一个 `thread_id` 只保留最新标题，避免 `主线`、`架构设计`、`H5发布` 等历史旧别名重复出现。
+- 项目顺序参考 Codex Desktop：先列置顶线程和置顶项目，再列其他项目。
+- 没有当前线程的本地项目会显示为 `暂无对话`；远程 / 云端项目如果没有落到本机 SQLite 和侧边栏本地状态，当前版本不会伪造显示。
 - 独立线程单独放在“独立线程”下，不归到任何项目。
 - 当前已进入的线程标记为“当前”，但不改变置顶项目优先顺序。
 - `/ent` 继续支持直接输入线程名，也支持 `项目名/线程名`，例如 `/ent 创意设计及验证` 或 `/ent 18.EduEntry/主线`。
@@ -663,10 +664,32 @@ Codex 项目/线程
 - `state_5.sqlite.threads.archived=1` 的线程不再显示。
 - `config.toml` 中的历史项目段不再单独显示为 `暂无对话`。
 - 已确认 `03.GPTSoVITSMini` 下只显示未归档线程，不再显示已归档的 `参考 第二条内容...`、`把vs code设置成中文菜单`、`同步所有` 等线程。
-- 已确认 `F:` 根目录分组被过滤。
+- 已确认 `F:` 根目录分组只匹配根目录自身，不再吞掉全部 `F:\...` 子项目。
 - 服务保持运行，删除或归档项目/线程后，下一次 `/ls` 会重新读取状态并反映变化。
 
-## 25. 版本记录
+## 25. 侧边栏可见列表修复记录
+
+验证时间：`2026-05-22 10:24`
+
+问题原因：
+
+- 旧版本把 `state_5.sqlite`、`session_index.jsonl`、`config.toml` 的历史记录直接合并，导致已经不在 Codex Desktop 侧边栏中的历史项目和同一 thread 的旧标题仍被列出。
+- `session_index.jsonl` 会保留同一 `thread_id` 的多个旧标题，例如同一线程曾出现 `主线`、`架构设计`、`H5发布`；这些不是当前侧边栏里的独立线程。
+
+修复方式：
+
+- `/ls` 先读取 `.codex-global-state.json` 中的当前侧边栏项目集合，再只显示这些项目下的本地线程。
+- 同一 `thread_id` 只取最新一条 `session_index.jsonl` 标题。
+- 置顶线程从所属项目中移出，单独放到“置顶”区，和 Codex Desktop 侧边栏一致。
+- `F:` 这类磁盘根项目只匹配精确根目录，不再吞掉全部 `F:\...` 子项目。
+
+当前验证结果：
+
+- `npm run check` 通过。
+- 新代码直接生成的 `/ls` 已收敛为截图中的本地可见项目：`40.工具及创意`、`18.EduEntry`、`12.AIScoreAnalysis`、`03.GPTSoVITSMini`、`01.AIAgent`、`12.AI辅助嵌入式设备`、`122.淘宝...`、`08.联讯`、`51.面试准备`、`F:`、`02.准备工作` 和独立线程 `创意设计及验证`。
+- 远程 / 云端项目 `--------- / 测试` 只在 Codex Desktop 云端区域可见，目前本机 `state_5.sqlite` 没有对应线程记录；后续如果需要微信进入云端线程，需要单独接入 Codex 云端任务索引。
+
+## 26. 版本记录
 
 | 日期 | 版本 / 节点 | 说明 |
 |---|---|---|
@@ -686,3 +709,4 @@ Codex 项目/线程
 | 2026-05-22 | 0.3.7 | `/list` 补齐全部项目并单列独立线程；`/ent` 回复压缩为一行；GUI 适配器处理后重新基准化可见消息，避免旧消息或 `[WCB]` 回复被再次触发 |
 | 2026-05-22 | 0.3.8 | `/list` 进一步读取 Codex `state_5.sqlite` 和 `config.toml`，补齐 `03.GPTSoVITSMini`、`01.AIAgent`、`17.AIRemoteCtl` 等侧边栏项目；长线程名在微信中自动截断显示 |
 | 2026-05-22 | 0.3.9 | `/list` 改为动态读取未归档状态：过滤 SQLite 已归档线程，不再把 `config.toml` 历史项目单独列出，删除或归档后的下一次 `/ls` 会更新 |
+| 2026-05-22 | 0.4.0 | `/list` 改为以 Codex Desktop 当前侧边栏为准：只显示当前可见本地项目和最新线程标题，过滤历史旧项目、旧标题和重复 thread |

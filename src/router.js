@@ -280,7 +280,9 @@ function helpText() {
 }
 
 function formatThreadTree(targets, activeTarget, projects = []) {
-  const groups = groupTargetsByProject(targets, projects);
+  const pinnedThreads = targets.filter((target) => target.threadPinned);
+  const regularTargets = targets.filter((target) => !target.threadPinned);
+  const groups = groupTargetsByProject(regularTargets, projects);
   for (const group of groups.values()) {
     group.hasActive = group.targets.some((target) => isActiveTarget(target, activeTarget));
   }
@@ -290,11 +292,26 @@ function formatThreadTree(targets, activeTarget, projects = []) {
   const projectlessGroups = [...groups.values()].filter((group) => group.projectless);
 
   const lines = ["Codex 项目/线程"];
+  appendPinnedThreads(lines, pinnedThreads, activeTarget);
   appendGroupSection(lines, "置顶项目", pinnedGroups, activeTarget);
   appendGroupSection(lines, "其他项目", otherGroups, activeTarget);
   appendGroupSection(lines, "独立线程", projectlessGroups, activeTarget);
   lines.push("", "进入线程：/ent 项目名/线程名 或 /ent 线程名");
   return lines.join("\n");
+}
+
+function appendPinnedThreads(lines, threads, activeTarget) {
+  if (!threads.length) {
+    return;
+  }
+  lines.push("置顶");
+  const sorted = threads.sort((a, b) => Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0));
+  for (let index = 0; index < sorted.length; index += 1) {
+    const target = sorted[index];
+    const branch = index === sorted.length - 1 ? "└─" : "├─";
+    const active = isActiveTarget(target, activeTarget) ? "当前 " : "";
+    lines.push(`${branch} ${active}${shortenName(target.threadName)}`);
+  }
 }
 
 function sortProjectGroups(groups) {

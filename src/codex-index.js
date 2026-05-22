@@ -11,29 +11,47 @@ try {
   DatabaseSync = null;
 }
 
+const PINNED_PROJECT_RECENT_MS = 4 * 24 * 60 * 60 * 1000;
+
 export function listCodexThreads(codexHome = path.join(os.homedir(), ".codex")) {
   const sidebar = readCodexSidebarState(codexHome);
   const allStateRows = readStateThreads(codexHome, { includeArchived: true });
   const stateById = new Map(allStateRows.map((row) => [row.id, row]));
-  const sessionRows = readSessionIndexRows(codexHome)
-    .filter((row) => !stateById.get(row.id)?.archived);
-  const sessionIds = new Set(sessionRows.map((row) => row.id).filter(Boolean));
-  const stateRows = allStateRows
-    .filter((row) => !row.archived)
-    .filter((row) => row.id && !sessionIds.has(row.id));
+  const sessionById = latestSessionRowsById(readSessionIndexRows(codexHome)
+    .filter((row) => !stateById.get(row.id)?.archived));
+  const threadIds = new Set([
+    ...allStateRows.filter((row) => !row.archived).map((row) => row.id),
+    ...sessionById.keys()
+  ]);
 
-  const latestByKey = new Map();
-  for (const row of [...sessionRows, ...stateRows]) {
-    const meta = row.cwd ? null : readSessionMeta(codexHome, row.id);
-    const cwd = cleanPath(row.cwd || meta?.cwd || sidebar.threadWorkspaceRootHints.get(row.id) || codexHome);
-    const project = resolveProject(cwd, row.id, sidebar);
-    if (!project.projectless && isDriveRoot(project.key)) {
+  const visibleThreads = [];
+  for (const id of threadIds) {
+    const stateRow = stateById.get(id);
+    if (stateRow?.archived) {
       continue;
     }
-    const updatedAtMs = row.updatedAtMs || timestampMs(row.updated_at);
-    const threadName = cleanDisplayText(row.thread_name || row.title || row.id);
-    const thread = {
-      id: row.id,
+    const sessionRow = sessionById.get(id);
+    const meta = stateRow?.cwd ? null : readSessionMeta(codexHome, id);
+    const cwd = cleanPath(stateRow?.cwd || meta?.cwd || sidebar.threadWorkspaceRootHints.get(id) || codexHome);
+    const updatedAtMs = Math.max(
+      sessionRow?.updatedAtMs || 0,
+      stateRow?.updatedAtMs || 0
+    );
+    const project = resolveProject(cwd, id, sidebar);
+    if (!isVisibleSidebarProject(project, sidebar)) {
+      continue;
+    }
+    if (
+      project.pinned
+      && !sessionRow
+      && !sidebar.pinnedThreadIds.has(id)
+      && !isRecentPinnedProjectThread(updatedAtMs)
+    ) {
+      continue;
+    }
+    const threadName = cleanDisplayText(sessionRow?.thread_name || stateRow?.thread_name || id);
+    visibleThreads.push({
+      id,
       alias: threadName,
       projectKey: project.key,
       projectName: project.name,
@@ -41,40 +59,24 @@ export function listCodexThreads(codexHome = path.join(os.homedir(), ".codex")) 
       projectPinned: project.pinned,
       projectOrder: project.order,
       projectless: project.projectless,
-      threadId: row.id,
+      threadId: id,
       threadName,
-      threadPinned: sidebar.pinnedThreadIds.has(row.id),
+      threadPinned: sidebar.pinnedThreadIds.has(id),
       cwd,
       outputDir: cwd,
-      updatedAt: row.updated_at || isoFromMs(updatedAtMs),
-      updatedAtMs
-    };
-    const key = [
-      normalizePath(thread.cwd),
-      normalize(thread.threadName),
-      thread.id
-    ].join("\0");
-    const previous = latestByKey.get(key);
-    if (!previous || thread.updatedAtMs >= previous.updatedAtMs) {
-      latestByKey.set(key, thread);
-    }
+      updatedAt: isoFromMs(updatedAtMs),
+      updatedAtMs,
+      hasSessionAlias: Boolean(sessionRow)
+    });
   }
 
-  return [...latestByKey.values()]
+  return visibleThreads
     .sort((a, b) => b.updatedAtMs - a.updatedAtMs);
 }
 
 export function listCodexProjects(codexHome = path.join(os.homedir(), ".codex")) {
   const sidebar = readCodexSidebarState(codexHome);
-  const stateProjectPaths = readStateThreads(codexHome)
-    .map((row) => resolveProject(row.cwd, row.id, sidebar).path || row.cwd)
-    .filter(Boolean);
-  const projectPaths = mergeProjectPaths([
-    ...sidebar.currentProjectPaths,
-    ...stateProjectPaths
-  ]);
-  return projectPaths
-    .filter((projectPath) => !isDriveRoot(normalizePath(projectPath)))
+  return sidebar.currentProjectPaths
     .map((projectPath) => {
       const normalizedProject = normalizePath(projectPath);
       return {
@@ -146,6 +148,20 @@ function readSessionIndexRows(codexHome) {
         return [];
       }
     });
+}
+
+function latestSessionRowsById(rows) {
+  const latest = new Map();
+  for (const row of rows) {
+    if (!row.id) {
+      continue;
+    }
+    const previous = latest.get(row.id);
+    if (!previous || row.updatedAtMs >= previous.updatedAtMs) {
+      latest.set(row.id, row);
+    }
+  }
+  return latest;
 }
 
 function readStateThreads(codexHome, options = {}) {
@@ -226,6 +242,7 @@ function readCodexSidebarState(codexHome) {
     projectOrderMap: new Map(),
     savedWorkspaceRoots: [],
     currentProjectPaths: [],
+    currentProjectKeys: new Set(),
     configProjectPaths,
     allProjectPaths: configProjectPaths,
     threadWorkspaceRootHints: new Map()
@@ -240,16 +257,27 @@ function readCodexSidebarState(codexHome) {
     const savedWorkspaceRoots = Array.isArray(state["electron-saved-workspace-roots"])
       ? state["electron-saved-workspace-roots"]
       : [];
-    const currentProjectPaths = mergeProjectPaths([...projectOrder, ...savedWorkspaceRoots]);
+    const pinnedProjectIds = new Set((state["pinned-project-ids"] || []).map(normalizePath));
+    const projectOrderKeys = new Set(projectOrder.map(normalizePath));
+    const pinnedProjectOrder = projectOrder.filter((item) => pinnedProjectIds.has(normalizePath(item)));
+    const savedOnlyProjects = savedWorkspaceRoots.filter((item) => !projectOrderKeys.has(normalizePath(item)));
+    const regularProjectOrder = projectOrder.filter((item) => !pinnedProjectIds.has(normalizePath(item)));
+    const currentProjectPaths = mergeProjectPaths([
+      ...pinnedProjectOrder,
+      ...savedOnlyProjects,
+      ...regularProjectOrder
+    ]);
     const allProjectPaths = mergeProjectPaths([...currentProjectPaths, ...configProjectPaths]);
+    const currentProjectKeys = new Set(currentProjectPaths.map(normalizePath));
     return {
-      pinnedProjectIds: new Set((state["pinned-project-ids"] || []).map(normalizePath)),
+      pinnedProjectIds,
       pinnedThreadIds: new Set(state["pinned-thread-ids"] || []),
       projectlessThreadIds: new Set(state["projectless-thread-ids"] || []),
       projectOrder,
       projectOrderMap: new Map(currentProjectPaths.map((item, index) => [normalizePath(item), index])),
       savedWorkspaceRoots,
       currentProjectPaths,
+      currentProjectKeys,
       configProjectPaths,
       allProjectPaths,
       threadWorkspaceRootHints: new Map(Object.entries(state["thread-workspace-root-hints"] || {}))
@@ -296,7 +324,7 @@ function resolveProject(cwd, threadId, sidebar) {
     .filter((candidate) => {
       const normalized = normalizePath(candidate);
       if (isDriveRoot(normalized)) {
-        return false;
+        return normalizedCwd === normalized;
       }
       return normalizedCwd === normalized || normalizedCwd.startsWith(`${normalized}\\`);
     })
@@ -314,6 +342,14 @@ function resolveProject(cwd, threadId, sidebar) {
     order: sidebar.projectOrderMap.get(normalizedProject) ?? Number.MAX_SAFE_INTEGER,
     projectless: false
   };
+}
+
+function isVisibleSidebarProject(project, sidebar) {
+  return project.projectless || sidebar.currentProjectKeys.has(project.key);
+}
+
+function isRecentPinnedProjectThread(updatedAtMs) {
+  return updatedAtMs > 0 && Date.now() - updatedAtMs <= PINNED_PROJECT_RECENT_MS;
 }
 
 function cleanPath(value) {
@@ -376,7 +412,7 @@ function mergeProjectPaths(paths) {
   for (const rawPath of paths) {
     const projectPath = cleanPath(rawPath);
     const key = normalizePath(projectPath);
-    if (!projectPath || isDriveRoot(key) || result.has(key)) {
+    if (!projectPath || result.has(key)) {
       continue;
     }
     result.set(key, projectPath);
