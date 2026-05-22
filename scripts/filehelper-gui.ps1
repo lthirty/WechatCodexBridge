@@ -214,6 +214,7 @@ function Invoke-Bridge {
 Write-JsonLine @{ event = 'started'; pid = $PID; bridgeUrl = $BridgeUrl; time = (Get-Date).ToString('o') }
 
 $previousCounts = @{}
+$recentProcessed = @{}
 $seeded = $false
 
 while ($true) {
@@ -243,6 +244,18 @@ while ($true) {
       if ($newCount -le $oldCount) { continue }
 
       for ($i = 0; $i -lt ($newCount - $oldCount); $i++) {
+        $nowMs = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
+        $lastProcessedMs = if ($recentProcessed.ContainsKey($text)) { [int64]$recentProcessed[$text] } else { 0 }
+        if (($nowMs - $lastProcessedMs) -lt 30000) {
+          Write-JsonLine @{ event = 'deduped'; text = $text; time = (Get-Date).ToString('o') }
+          continue
+        }
+        $recentProcessed[$text] = $nowMs
+        foreach ($key in @($recentProcessed.Keys)) {
+          if (($nowMs - [int64]$recentProcessed[$key]) -gt 300000) {
+            $recentProcessed.Remove($key)
+          }
+        }
         Write-JsonLine @{ event = 'incoming'; text = $text; time = (Get-Date).ToString('o') }
         if (-not $text.StartsWith('/')) {
           Send-FileHelperText -Process $process -Text "$ReplyPrefix 已收到，正在发送到 Codex 处理..."

@@ -571,6 +571,7 @@ F:\01.AI\20.WechatCodexBridge\backups
 修复内容：
 
 - `scripts/filehelper-gui.ps1` 增加自回复过滤：忽略以 `[WCB]` 或 `/[WCB]` 开头的可见 ListItem。
+- `scripts/filehelper-gui.ps1` 增加 30 秒相同文本去重：微信 UI 重新渲染同一条用户消息时，不再重复触发同一命令。
 - 出现循环时先用 `scripts/stop.ps1` 停止 bridge 和 GUI adapter，避免继续刷屏。
 
 ## 21. 版本记录
@@ -586,3 +587,4 @@ F:\01.AI\20.WechatCodexBridge\backups
 | 2026-05-22 | 0.3.0 | /list 读取 Codex App 线程索引，/ent 支持无引号，完成微信与 Codex session 真实双向验证 |
 | 2026-05-22 | 0.3.1 | 修复图片回传静默和媒体占位误识别，完成真实图片文件回传验证 |
 | 2026-05-22 | 0.3.2 | 修复 `/ls` 后 bridge 自己回复被误识别为 `/[WCB]` 命令的自激循环 |
+| 2026-05-22 | 0.3.3 | 增加 GUI 消息 30 秒去重，避免微信重复暴露同一条 `/ls` 时反复执行 |
