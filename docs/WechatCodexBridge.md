@@ -6,7 +6,7 @@
 
 GitHub 仓库：`https://github.com/lthirty/WechatCodexBridge`
 
-当前说明：本地目录暂未初始化为 Git 仓库，未执行提交或推送。
+当前说明：本地目录已初始化为 Git 仓库，GitHub 仓库为 `lthirty/WechatCodexBridge`。
 
 ## 1. 最高原则
 
@@ -480,7 +480,7 @@ F:\01.AI\20.WechatCodexBridge\backups
 |---|---|---|
 | HTTP 服务 | 已实现基础接口 | `src/server.js` |
 | 命令解析 | 已支持核心命令 | `src/router.js` |
-| Codex 线程索引 | 已读取 Codex App session index | `src/codex-index.js` |
+| Codex 线程索引 | 已合并 Codex App SQLite 线程库、session index、config 项目段和侧边栏状态 | `src/codex-index.js` |
 | 状态存储 | JSON + 自动备份 | `src/store.js` |
 | Codex 执行 | 支持 dry-run 和真实 resume | `src/codex-runner.js` |
 | 微信回发 | 默认 dry-run + filehelper 白名单 | `src/wechat-client.js` |
@@ -608,7 +608,9 @@ F:\01.AI\20.WechatCodexBridge\backups
   - `pinned-project-ids`：置顶项目优先。
   - `pinned-thread-ids`：置顶线程在项目内优先。
   - `project-order`：项目顺序尽量贴近 Codex Desktop 侧边栏。
-- 输出会列出 Codex Desktop 侧边栏记录的全部项目：先列置顶项目，再列其他项目。
+- 输出会合并列出 Codex Desktop 本地记录的全部项目：`state_5.sqlite` 线程库、`session_index.jsonl`、`config.toml` 项目段和 `.codex-global-state.json` 侧边栏状态都会参与索引。
+- 项目顺序仍优先参考 Codex Desktop：先列置顶项目，再列其他项目。
+- 没有线程的项目也会显示，并标记为 `暂无对话`。
 - 独立线程单独放在“独立线程”下，不归到任何项目。
 - 当前已进入的线程标记为“当前”，但不改变置顶项目优先顺序。
 - `/ent` 继续支持直接输入线程名，也支持 `项目名/线程名`，例如 `/ent 创意设计及验证` 或 `/ent 18.EduEntry/主线`。
@@ -632,7 +634,21 @@ Codex 项目/线程
 进入线程：/ent 项目名/线程名 或 /ent 线程名
 ```
 
-## 23. 版本记录
+## 23. 完整项目索引验证记录
+
+验证时间：`2026-05-22 09:51`
+
+验证方式：重启 `WechatCodexBridge` 和 `FileHelper GUI adapter` 后，向真实微信 `文件传输助手` 窗口发送 `/ls`。
+
+验证结果：
+
+- `npm run check` 通过。
+- 服务状态：`WechatCodexBridge` 和 `FileHelper GUI adapter` 均保持运行。
+- `/ls` 回复已经包含之前漏掉的项目：`03.GPTSoVITSMini`、`01.AIAgent`、`19.HermesAgent`、`17.AIRemoteCtl`、`12.AI辅助嵌入式设备`。
+- `17.AIRemoteCtl` 这类暂无线程的项目会显示 `暂无对话`。
+- `/ls` 发送后观察日志未出现自激循环。
+
+## 24. 版本记录
 
 | 日期 | 版本 / 节点 | 说明 |
 |---|---|---|
@@ -650,3 +666,4 @@ Codex 项目/线程
 | 2026-05-22 | 0.3.5 | 使用 Codex `--output-last-message` 捕获最终回复，压缩 CLI 错误；FileHelper 发送改为定位 `chat_input_field`，完成 `WCB-SYNC-084019` 双向验证 |
 | 2026-05-22 | 0.3.6 | `/list` 改为按项目分组的树形列表，只显示项目名和线程名，并按 Codex Desktop 置顶和侧边栏顺序优先显示 |
 | 2026-05-22 | 0.3.7 | `/list` 补齐全部项目并单列独立线程；`/ent` 回复压缩为一行；GUI 适配器处理后重新基准化可见消息，避免旧消息或 `[WCB]` 回复被再次触发 |
+| 2026-05-22 | 0.3.8 | `/list` 进一步读取 Codex `state_5.sqlite` 和 `config.toml`，补齐 `03.GPTSoVITSMini`、`01.AIAgent`、`17.AIRemoteCtl` 等侧边栏项目；长线程名在微信中自动截断显示 |

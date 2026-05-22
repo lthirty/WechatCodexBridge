@@ -333,12 +333,16 @@ function appendThreadLines(lines, group, activeTarget) {
     if (pinnedDiff) return pinnedDiff;
     return Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0);
   });
+  if (!threads.length) {
+    lines.push("└─ 暂无对话");
+    return;
+  }
   for (let index = 0; index < threads.length; index += 1) {
     const target = threads[index];
     const branch = index === threads.length - 1 ? "└─" : "├─";
     const active = isActiveTarget(target, activeTarget) ? "当前 " : "";
     const pinned = target.threadPinned ? "置顶 " : "";
-    lines.push(`${branch} ${active}${pinned}${target.threadName}`);
+    lines.push(`${branch} ${active}${pinned}${shortenName(target.threadName)}`);
   }
 }
 
@@ -384,6 +388,14 @@ function maxDate(left, right) {
 
 function isActiveTarget(target, activeTarget) {
   return Boolean(activeTarget) && target.alias === activeTarget.alias;
+}
+
+function shortenName(value, maxLength = 30) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength - 3)}...`;
 }
 
 function isLatestImageRequest(text) {
