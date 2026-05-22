@@ -598,7 +598,34 @@ F:\01.AI\20.WechatCodexBridge\backups
 - `2026-05-22 08:41:15`：GUI 适配器收到 bridge 回复并回发 `[WCB] [创意设计及验证] 完成\nWCB-SYNC-084019 OK`。
 - 结论：文件传输助手 -> bridge -> Codex session -> 文件传输助手回发链路通过；Desktop 同步依赖 `codex://threads/<threadId>` 自动刷新对应线程。
 
-## 22. 版本记录
+## 22. `/list` 树形输出
+
+目标：
+
+- `/list` 和 `/ls` 只展示项目名称、线程名称和层级关系。
+- 不再展示 thread id、cwd、outputDir 等调试字段，避免微信里列表过长。
+- 优先读取 Codex Desktop 的 `.codex-global-state.json`：
+  - `pinned-project-ids`：置顶项目优先。
+  - `pinned-thread-ids`：置顶线程在项目内优先。
+  - `project-order`：项目顺序尽量贴近 Codex Desktop 侧边栏。
+- 当前已进入的线程会显示在最前面，并标记为“当前”。
+- `/ent` 继续支持直接输入线程名，也支持 `项目名/线程名`，例如 `/ent 18.EduEntry/主线`。
+
+输出示例：
+
+```text
+Codex 项目/线程
+当前 快速对话
+└─ 当前 创意设计及验证
+
+置顶 18.EduEntry
+├─ 入学通-主线程-派生1
+└─ 主线程-代码修改和验证
+
+进入线程：/ent 项目名/线程名
+```
+
+## 23. 版本记录
 
 | 日期 | 版本 / 节点 | 说明 |
 |---|---|---|
@@ -614,3 +641,4 @@ F:\01.AI\20.WechatCodexBridge\backups
 | 2026-05-22 | 0.3.3 | 增加 GUI 消息 30 秒去重，避免微信重复暴露同一条 `/ls` 时反复执行 |
 | 2026-05-22 | 0.3.4 | 普通微信消息执行时自动打开对应 `codex://threads/<threadId>`，让 Codex Desktop 同步显示微信输入和回复 |
 | 2026-05-22 | 0.3.5 | 使用 Codex `--output-last-message` 捕获最终回复，压缩 CLI 错误；FileHelper 发送改为定位 `chat_input_field`，完成 `WCB-SYNC-084019` 双向验证 |
+| 2026-05-22 | 0.3.6 | `/list` 改为按项目分组的树形列表，只显示项目名和线程名，并按 Codex Desktop 置顶和侧边栏顺序优先显示 |

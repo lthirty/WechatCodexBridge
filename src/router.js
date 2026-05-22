@@ -103,11 +103,8 @@ export class Router {
     if (!targets.length) {
       return this.reply(session.id, "没有找到 Codex App 线程索引。");
     }
-    const lines = targets.slice(0, 30).map((target, index) => {
-      const active = target.alias === this.store.getActiveTarget(session.id)?.alias ? "*" : "-";
-      return `${active} ${index + 1}. ${target.threadName} | ${target.id} | ${target.cwd}`;
-    });
-    return this.reply(session.id, lines.join("\n"));
+    const activeTarget = this.store.getActiveTarget(session.id);
+    return this.reply(session.id, formatThreadTree(targets, activeTarget));
   }
 
   async status(session) {
@@ -284,6 +281,81 @@ function helpText() {
     "",
     "兼容旧命令：/targets = /list，/use = /ent"
   ].join("\n");
+}
+
+function formatThreadTree(targets, activeTarget) {
+  const groups = groupTargetsByProject(targets);
+  for (const group of groups.values()) {
+    group.hasActive = group.targets.some((target) => isActiveTarget(target, activeTarget));
+  }
+  const sortedGroups = [...groups.values()].sort((a, b) => {
+    const activeDiff = Number(b.hasActive) - Number(a.hasActive);
+    if (activeDiff) return activeDiff;
+    const pinnedDiff = Number(b.pinned) - Number(a.pinned);
+    if (pinnedDiff) return pinnedDiff;
+    const orderDiff = a.order - b.order;
+    if (orderDiff) return orderDiff;
+    return Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0);
+  });
+
+  const lines = ["Codex 项目/线程"];
+  for (let groupIndex = 0; groupIndex < sortedGroups.length; groupIndex += 1) {
+    const group = sortedGroups[groupIndex];
+    if (groupIndex > 0) {
+      lines.push("");
+    }
+    const projectPrefix = group.hasActive ? "当前 " : group.pinned ? "置顶 " : "";
+    lines.push(`${projectPrefix}${group.name}`);
+
+    const threads = group.targets.sort((a, b) => {
+      const activeDiff = Number(isActiveTarget(b, activeTarget)) - Number(isActiveTarget(a, activeTarget));
+      if (activeDiff) return activeDiff;
+      const pinnedDiff = Number(b.threadPinned) - Number(a.threadPinned);
+      if (pinnedDiff) return pinnedDiff;
+      return Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0);
+    });
+    for (let index = 0; index < threads.length; index += 1) {
+      const target = threads[index];
+      const branch = index === threads.length - 1 ? "└─" : "├─";
+      const active = isActiveTarget(target, activeTarget) ? "当前 " : "";
+      const pinned = target.threadPinned ? "置顶 " : "";
+      lines.push(`${branch} ${active}${pinned}${target.threadName}`);
+    }
+  }
+  lines.push("", "进入线程：/ent 项目名/线程名");
+  return lines.join("\n");
+}
+
+function groupTargetsByProject(targets) {
+  const groups = new Map();
+  for (const target of targets) {
+    const key = target.projectKey || target.projectName || "unknown";
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        name: target.projectName || "未命名项目",
+        pinned: Boolean(target.projectPinned),
+        order: target.projectOrder ?? Number.MAX_SAFE_INTEGER,
+        projectless: Boolean(target.projectless),
+        updatedAt: target.updatedAt,
+        hasActive: false,
+        targets: []
+      });
+    }
+    const group = groups.get(key);
+    group.pinned ||= Boolean(target.projectPinned);
+    group.updatedAt = maxDate(group.updatedAt, target.updatedAt);
+    group.targets.push(target);
+  }
+  return groups;
+}
+
+function maxDate(left, right) {
+  return Date.parse(left || 0) >= Date.parse(right || 0) ? left : right;
+}
+
+function isActiveTarget(target, activeTarget) {
+  return Boolean(activeTarget) && target.alias === activeTarget.alias;
 }
 
 function isLatestImageRequest(text) {
