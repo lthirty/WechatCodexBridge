@@ -148,16 +148,16 @@ export class Router {
     try {
       this.store.updateJob(jobId, { status: "running" });
       this.store.save("job_running");
-      scheduleCodexThreadOpen(target, 1500);
+      scheduleCodexThreadRefresh(target);
       const result = await this.codexRunner.enqueue(target, message);
       this.store.updateJob(jobId, { status: "completed", result });
       this.store.save("job_completed");
-      openCodexThread(target);
-      return this.reply(session.id, `[${target.alias}] 完成\n${result}`);
+      scheduleCodexThreadOpen(target, 2500);
+      return this.reply(session.id, formatTargetCompletion(target, result, this.config));
     } catch (error) {
       this.store.updateJob(jobId, { status: "failed", result: error.message });
       this.store.save("job_failed");
-      return this.reply(session.id, `[${target.alias}] 失败\n${error.message}`);
+      return this.reply(session.id, `[${target.alias}] 失败\n${formatReplyText(error.message, this.config)}`);
     }
   }
 
@@ -444,11 +444,30 @@ function fileToMarkdown(filePath) {
   return `![${path.basename(filePath)}](${filePath.replaceAll("\\", "/")})`;
 }
 
+function formatTargetCompletion(target, result, config) {
+  return `[${target.alias}] 完成\n${formatReplyText(result, config)}`;
+}
+
+function formatReplyText(text, config) {
+  const maxChars = Number(config.defaults?.maxReplyChars || 800);
+  const value = String(text || "").replace(/\r\n/g, "\n").trim();
+  if (value.length <= maxChars) {
+    return value;
+  }
+  return `${value.slice(0, maxChars).trim()}\n...\n[WCB] 结果较长，已截断。`;
+}
+
 function scheduleCodexThreadOpen(target, delayMs) {
   if (!target.threadId) {
     return;
   }
   setTimeout(() => openCodexThread(target), delayMs).unref();
+}
+
+function scheduleCodexThreadRefresh(target) {
+  for (const delayMs of [0, 1200, 3500]) {
+    scheduleCodexThreadOpen(target, delayMs);
+  }
 }
 
 function openCodexThread(target) {

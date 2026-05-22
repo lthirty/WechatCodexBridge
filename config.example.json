@@ -13,6 +13,7 @@
   "codex": {
     "mode": "dry-run",
     "command": "codex",
+    "timeoutMs": 180000,
     "args": [
       "exec",
       "--cwd",
@@ -29,6 +30,7 @@
   },
   "defaults": {
     "maxSendFiles": 10,
+    "maxReplyChars": 800,
     "imageExtensions": [
       ".png",
       ".jpg",

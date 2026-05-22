@@ -29,6 +29,7 @@ export class CodexRunner {
     if (this.config.codex?.mode === "resume") {
       const command = this.config.codex.command || "codex";
       const outputFile = path.join(os.tmpdir(), `wcb-codex-last-${Date.now()}-${Math.random().toString(16).slice(2)}.txt`);
+      const timeoutMs = Number(this.config.codex?.timeoutMs || 180000);
       const args = [
         "exec",
         "resume",
@@ -40,7 +41,7 @@ export class CodexRunner {
         "--output-last-message",
         outputFile
       ];
-      const output = await runProcess(command, args, target.cwd, { outputFile });
+      const output = await runProcess(command, args, target.cwd, { outputFile, timeoutMs });
       return readTextFile(outputFile) || extractCodexLastMessage(output) || output;
     }
 
@@ -51,7 +52,7 @@ export class CodexRunner {
         .replaceAll("{threadId}", target.threadId || "")
         .replaceAll("{message}", message);
     });
-    return runProcess(command, args, target.cwd);
+    return runProcess(command, args, target.cwd, { timeoutMs: Number(this.config.codex?.timeoutMs || 180000) });
   }
 }
 
@@ -93,17 +94,37 @@ function extractMessageFromEvent(event) {
 function runProcess(command, args, cwd, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd, windowsHide: true });
+    let timedOut = false;
     let stdout = "";
     let stderr = "";
+    const timeout = options.timeoutMs > 0
+      ? setTimeout(() => {
+          timedOut = true;
+          terminateProcessTree(child);
+        }, options.timeoutMs)
+      : null;
+    timeout?.unref();
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
     });
     child.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
     });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      reject(error);
+    });
     child.on("close", (code) => {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
       const fileOutput = readTextFile(options.outputFile);
+      if (timedOut) {
+        reject(new Error(`codex timed out after ${Math.round(options.timeoutMs / 1000)}s`));
+        return;
+      }
       if (code !== 0) {
         const parsed = extractCodexLastMessage(stdout);
         if (fileOutput || parsed) {
@@ -116,6 +137,20 @@ function runProcess(command, args, cwd, options = {}) {
       resolve(fileOutput || stdout.trim() || stderr.trim() || "(no output)");
     });
   });
+}
+
+function terminateProcessTree(child) {
+  if (!child.pid) {
+    return;
+  }
+  if (process.platform === "win32") {
+    spawn("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], {
+      windowsHide: true,
+      stdio: "ignore"
+    }).unref();
+    return;
+  }
+  child.kill("SIGTERM");
 }
 
 function readTextFile(filePath) {

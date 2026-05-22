@@ -197,6 +197,24 @@ function Get-NewVisibleTexts {
   return @($newTexts)
 }
 
+function Get-DedupeKey {
+  param([string]$Text)
+  $value = ($Text -replace "`r`n", "`n").Trim()
+  if ($value.StartsWith('/')) {
+    return $value.ToLowerInvariant()
+  }
+  return $value
+}
+
+function Get-DedupeWindowMs {
+  param([string]$Text)
+  $value = $Text.Trim()
+  if ($value.StartsWith('/')) {
+    return 30000
+  }
+  return 600000
+}
+
 function Send-FileHelperText {
   param($Process, [string]$Text)
 
@@ -260,6 +278,7 @@ Write-JsonLine @{ event = 'started'; pid = $PID; bridgeUrl = $BridgeUrl; time = 
 
 $previousCounts = @{}
 $recentProcessed = @{}
+$inFlight = @{}
 $seeded = $false
 
 while ($true) {
@@ -288,48 +307,60 @@ while ($true) {
     if ($newTexts.Count -gt 0) {
       $text = [string]$newTexts[$newTexts.Count - 1]
       $nowMs = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
-      $lastProcessedMs = if ($recentProcessed.ContainsKey($text)) { [int64]$recentProcessed[$text] } else { 0 }
-      if (($nowMs - $lastProcessedMs) -lt 30000) {
-        Write-JsonLine @{ event = 'deduped'; text = $text; time = (Get-Date).ToString('o') }
+      $dedupeKey = Get-DedupeKey -Text $text
+      $dedupeWindowMs = Get-DedupeWindowMs -Text $text
+      $lastProcessedMs = if ($recentProcessed.ContainsKey($dedupeKey)) { [int64]$recentProcessed[$dedupeKey] } else { 0 }
+      if ($inFlight.ContainsKey($dedupeKey) -or (($nowMs - $lastProcessedMs) -lt $dedupeWindowMs)) {
+        Write-JsonLine @{ event = 'deduped'; text = $text; windowMs = $dedupeWindowMs; time = (Get-Date).ToString('o') }
         $handledMessage = $true
       } else {
-        $recentProcessed[$text] = $nowMs
+        $recentProcessed[$dedupeKey] = $nowMs
+        $inFlight[$dedupeKey] = $nowMs
         foreach ($key in @($recentProcessed.Keys)) {
-          if (($nowMs - [int64]$recentProcessed[$key]) -gt 300000) {
+          if (($nowMs - [int64]$recentProcessed[$key]) -gt 900000) {
             $recentProcessed.Remove($key)
           }
         }
-        Write-JsonLine @{ event = 'incoming'; text = $text; time = (Get-Date).ToString('o') }
-        if (-not $text.StartsWith('/')) {
-          Send-FileHelperText -Process $process -Text "$ReplyPrefix $ForwardingText"
-        }
         try {
-          $result = Invoke-Bridge -Text $text
-          $reply = "$ReplyPrefix $($result.reply)"
-        } catch {
-          $message = $_.Exception.Message
-          if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
-            try {
-              $errorBody = $_.ErrorDetails.Message | ConvertFrom-Json
-              if ($errorBody.error) {
-                $message = $errorBody.error
-              }
-            } catch {
-              $message = $_.ErrorDetails.Message
-            }
+          Write-JsonLine @{ event = 'incoming'; text = $text; time = (Get-Date).ToString('o') }
+          if (-not $text.StartsWith('/')) {
+            Send-FileHelperText -Process $process -Text "$ReplyPrefix $ForwardingText"
           }
-          $reply = "$ReplyPrefix error: $message"
+          try {
+            $result = Invoke-Bridge -Text $text
+            $reply = "$ReplyPrefix $($result.reply)"
+          } catch {
+            $message = $_.Exception.Message
+            if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
+              try {
+                $errorBody = $_.ErrorDetails.Message | ConvertFrom-Json
+                if ($errorBody.error) {
+                  $message = $errorBody.error
+                }
+              } catch {
+                $message = $_.ErrorDetails.Message
+              }
+            }
+            $reply = "$ReplyPrefix error: $message"
+          }
+          $files = Get-LocalFilesFromText -Text $reply
+          $textReply = Remove-LocalImageMarkdown -Text $reply
+          if (-not [string]::IsNullOrWhiteSpace($textReply)) {
+            Send-FileHelperText -Process $process -Text $textReply
+          }
+          foreach ($file in $files) {
+            Send-FileHelperFile -Process $process -FilePath $file
+          }
+          $recentProcessed[$dedupeKey] = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
+          Write-JsonLine @{ event = 'reply_sent'; sourceText = $text; reply = $reply; time = (Get-Date).ToString('o') }
+          $handledMessage = $true
+        } catch {
+          Write-JsonLine @{ event = 'error'; message = $_.Exception.Message; text = $text; time = (Get-Date).ToString('o') }
+        } finally {
+          if ($inFlight.ContainsKey($dedupeKey)) {
+            $inFlight.Remove($dedupeKey)
+          }
         }
-        $files = Get-LocalFilesFromText -Text $reply
-        $textReply = Remove-LocalImageMarkdown -Text $reply
-        if (-not [string]::IsNullOrWhiteSpace($textReply)) {
-          Send-FileHelperText -Process $process -Text $textReply
-        }
-        foreach ($file in $files) {
-          Send-FileHelperFile -Process $process -FilePath $file
-        }
-        Write-JsonLine @{ event = 'reply_sent'; sourceText = $text; reply = $reply; time = (Get-Date).ToString('o') }
-        $handledMessage = $true
       }
     }
 

@@ -1,6 +1,6 @@
 {
   "name": "wechat-codex-bridge",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "description": "Local bridge for routing WeChat messages to multiple Codex project threads.",
   "type": "module",
