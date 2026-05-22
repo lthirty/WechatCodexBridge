@@ -11,6 +11,14 @@ $ErrorActionPreference = 'Stop'
 $FileHelperTitle = [string]::Concat([char]0x6587, [char]0x4EF6, [char]0x4F20, [char]0x8F93, [char]0x52A9, [char]0x624B)
 $ImageLabel = [string]::Concat([char]0x56FE, [char]0x7247)
 $ExpandLabel = [string]::Concat([char]0x5C55, [char]0x5F00)
+$ForwardingText = ([string]::Concat(
+  [char]0x5DF2, [char]0x6536, [char]0x5230, [char]0xFF0C,
+  [char]0x6B63, [char]0x5728, [char]0x53D1, [char]0x9001, [char]0x5230
+)) + ' Codex ' + ([string]::Concat([char]0x5904, [char]0x7406)) + '...'
+$ImageSentPlaceholder = '[' + ([string]::Concat(
+  [char]0x56FE, [char]0x7247, [char]0x5DF2, [char]0x4F5C, [char]0x4E3A,
+  [char]0x6587, [char]0x4EF6, [char]0x53D1, [char]0x9001
+)) + ']'
 if ([string]::IsNullOrWhiteSpace($DisplayName)) {
   $DisplayName = $FileHelperTitle
 }
@@ -234,7 +242,7 @@ function Get-LocalFilesFromText {
 
 function Remove-LocalImageMarkdown {
   param([string]$Text)
-  return ([regex]::Replace($Text, '!\[[^\]]*\]\([A-Za-z]:[/\\][^)]+\)', '[图片已作为文件发送]')).Trim()
+  return ([regex]::Replace($Text, '!\[[^\]]*\]\([A-Za-z]:[/\\][^)]+\)', $ImageSentPlaceholder)).Trim()
 }
 
 function Invoke-Bridge {
@@ -293,7 +301,7 @@ while ($true) {
         }
         Write-JsonLine @{ event = 'incoming'; text = $text; time = (Get-Date).ToString('o') }
         if (-not $text.StartsWith('/')) {
-          Send-FileHelperText -Process $process -Text "$ReplyPrefix 已收到，正在发送到 Codex 处理..."
+          Send-FileHelperText -Process $process -Text "$ReplyPrefix $ForwardingText"
         }
         try {
           $result = Invoke-Bridge -Text $text

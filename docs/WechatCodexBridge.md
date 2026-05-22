@@ -711,3 +711,4 @@ Codex 项目/线程
 | 2026-05-22 | 0.3.8 | `/list` 进一步读取 Codex `state_5.sqlite` 和 `config.toml`，补齐 `03.GPTSoVITSMini`、`01.AIAgent`、`17.AIRemoteCtl` 等侧边栏项目；长线程名在微信中自动截断显示 |
 | 2026-05-22 | 0.3.9 | `/list` 改为动态读取未归档状态：过滤 SQLite 已归档线程，不再把 `config.toml` 历史项目单独列出，删除或归档后的下一次 `/ls` 会更新 |
 | 2026-05-22 | 0.4.0 | `/list` 改为以 Codex Desktop 当前侧边栏为准：只显示当前可见本地项目和最新线程标题，过滤历史旧项目、旧标题和重复 thread |
+| 2026-05-22 | 0.4.1 | 修复 FileHelper GUI adapter 中硬编码中文提示在 Windows PowerShell 下被按系统编码误读导致的乱码；真实文件传输助手验证 `WCB-ENC-TEST-104632` 的即时提示已恢复中文 |
