@@ -1,4 +1,7 @@
 import { spawn } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 export class CodexRunner {
   constructor(config) {
@@ -25,6 +28,7 @@ export class CodexRunner {
 
     if (this.config.codex?.mode === "resume") {
       const command = this.config.codex.command || "codex";
+      const outputFile = path.join(os.tmpdir(), `wcb-codex-last-${Date.now()}-${Math.random().toString(16).slice(2)}.txt`);
       const args = [
         "exec",
         "resume",
@@ -32,10 +36,12 @@ export class CodexRunner {
         message,
         "--all",
         "--skip-git-repo-check",
-        "--json"
+        "--json",
+        "--output-last-message",
+        outputFile
       ];
-      const output = await runProcess(command, args, target.cwd);
-      return extractCodexLastMessage(output) || output;
+      const output = await runProcess(command, args, target.cwd, { outputFile });
+      return readTextFile(outputFile) || extractCodexLastMessage(output) || output;
     }
 
     const command = this.config.codex.command || "codex";
@@ -84,7 +90,7 @@ function extractMessageFromEvent(event) {
   return "";
 }
 
-function runProcess(command, args, cwd) {
+function runProcess(command, args, cwd, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd, windowsHide: true });
     let stdout = "";
@@ -97,11 +103,48 @@ function runProcess(command, args, cwd) {
     });
     child.on("error", reject);
     child.on("close", (code) => {
+      const fileOutput = readTextFile(options.outputFile);
       if (code !== 0) {
-        reject(new Error(`codex exited with ${code}\n${stderr}`));
+        const parsed = extractCodexLastMessage(stdout);
+        if (fileOutput || parsed) {
+          resolve(fileOutput || parsed);
+          return;
+        }
+        reject(new Error(`codex exited with ${code}\n${summarizeCodexError(stderr)}`));
         return;
       }
-      resolve(stdout.trim() || stderr.trim() || "(no output)");
+      resolve(fileOutput || stdout.trim() || stderr.trim() || "(no output)");
     });
   });
+}
+
+function readTextFile(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) {
+    return "";
+  }
+  try {
+    return fs.readFileSync(filePath, "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+function summarizeCodexError(stderr) {
+  const text = String(stderr || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  if (!text) {
+    return "(no stderr)";
+  }
+  const important = [
+    /remote plugin sync request .*? failed with status \d+ [A-Za-z]+/i,
+    /Auth required.*?(?= \d{4}-\d{2}-\d{2}|$)/i,
+    /Missing or invalid access token/i,
+    /unknown feature key in config: [^\s]+/i
+  ];
+  for (const pattern of important) {
+    const match = text.match(pattern);
+    if (match) {
+      return match[0];
+    }
+  }
+  return text.slice(0, 800);
 }

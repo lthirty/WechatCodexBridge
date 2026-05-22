@@ -574,7 +574,31 @@ F:\01.AI\20.WechatCodexBridge\backups
 - `scripts/filehelper-gui.ps1` 增加 30 秒相同文本去重：微信 UI 重新渲染同一条用户消息时，不再重复触发同一命令。
 - 出现循环时先用 `scripts/stop.ps1` 停止 bridge 和 GUI adapter，避免继续刷屏。
 
-## 21. 版本记录
+## 21. Codex Desktop 同步显示
+
+验证目标：
+
+- 微信 `文件传输助手` 进入某个 Codex 线程后，发送普通消息。
+- bridge 仍通过 `codex exec resume <threadId>` 执行，保证结果可捕获并回传微信。
+- 同时 bridge 会自动打开 `codex://threads/<threadId>` 深度链接：任务开始后打开一次，任务完成后再打开一次。
+- 这样 Codex Desktop 会跳转或刷新到对应线程，用户能在 Codex 窗口中看到微信发来的原始消息和 Codex 回复。
+- 该方案不直接模拟向 Codex Desktop 输入框打字，避免破坏用户当前输入框状态；线程写入以 Codex CLI resume 为准，Desktop 负责读取和显示同一 session。
+
+实现位置：
+
+- `src/router.js`
+- `scheduleCodexThreadOpen(target, 1500)`：任务开始后短延迟打开线程，尽量显示微信输入。
+- `openCodexThread(target)`：任务完成后再次打开线程，显示最终回复。
+- `src/codex-runner.js`：使用 `--output-last-message` 捕获最终回复，避免把 JSON 流或插件同步错误 HTML 原文发回微信。
+- `scripts/filehelper-gui.ps1`：发送文本和文件前优先定位微信输入框 `AutomationId=chat_input_field`，找不到时才回退到旧坐标点击。
+
+验证记录：
+
+- `2026-05-22 08:40:22`：通过真实 `文件传输助手` 输入框发送 `WCB-SYNC-084019 这条消息来自微信文件传输助手。请只回复：WCB-SYNC-084019 OK`。
+- `2026-05-22 08:41:15`：GUI 适配器收到 bridge 回复并回发 `[WCB] [创意设计及验证] 完成\nWCB-SYNC-084019 OK`。
+- 结论：文件传输助手 -> bridge -> Codex session -> 文件传输助手回发链路通过；Desktop 同步依赖 `codex://threads/<threadId>` 自动刷新对应线程。
+
+## 22. 版本记录
 
 | 日期 | 版本 / 节点 | 说明 |
 |---|---|---|
@@ -588,3 +612,5 @@ F:\01.AI\20.WechatCodexBridge\backups
 | 2026-05-22 | 0.3.1 | 修复图片回传静默和媒体占位误识别，完成真实图片文件回传验证 |
 | 2026-05-22 | 0.3.2 | 修复 `/ls` 后 bridge 自己回复被误识别为 `/[WCB]` 命令的自激循环 |
 | 2026-05-22 | 0.3.3 | 增加 GUI 消息 30 秒去重，避免微信重复暴露同一条 `/ls` 时反复执行 |
+| 2026-05-22 | 0.3.4 | 普通微信消息执行时自动打开对应 `codex://threads/<threadId>`，让 Codex Desktop 同步显示微信输入和回复 |
+| 2026-05-22 | 0.3.5 | 使用 Codex `--output-last-message` 捕获最终回复，压缩 CLI 错误；FileHelper 发送改为定位 `chat_input_field`，完成 `WCB-SYNC-084019` 双向验证 |

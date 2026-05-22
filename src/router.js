@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { assertAllowedPath } from "./security.js";
@@ -154,9 +155,11 @@ export class Router {
     try {
       this.store.updateJob(jobId, { status: "running" });
       this.store.save("job_running");
+      scheduleCodexThreadOpen(target, 1500);
       const result = await this.codexRunner.enqueue(target, message);
       this.store.updateJob(jobId, { status: "completed", result });
       this.store.save("job_completed");
+      openCodexThread(target);
       return this.reply(session.id, `[${target.alias}] 完成\n${result}`);
     } catch (error) {
       this.store.updateJob(jobId, { status: "failed", result: error.message });
@@ -310,4 +313,24 @@ function imageRootsForTarget(target) {
 
 function fileToMarkdown(filePath) {
   return `![${path.basename(filePath)}](${filePath.replaceAll("\\", "/")})`;
+}
+
+function scheduleCodexThreadOpen(target, delayMs) {
+  if (!target.threadId) {
+    return;
+  }
+  setTimeout(() => openCodexThread(target), delayMs).unref();
+}
+
+function openCodexThread(target) {
+  if (!target.threadId || process.platform !== "win32") {
+    return;
+  }
+  const url = `codex://threads/${target.threadId}`;
+  const child = spawn(
+    "cmd.exe",
+    ["/d", "/c", "start", "", url],
+    { windowsHide: true, detached: true, stdio: "ignore" }
+  );
+  child.unref();
 }

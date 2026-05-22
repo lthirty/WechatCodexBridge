@@ -103,6 +103,47 @@ function Get-VisibleMessageTexts {
   return @($items)
 }
 
+function Focus-FileHelperInput {
+  param($Process)
+
+  [WcbFileHelperWin32]::ShowWindow($Process.MainWindowHandle, 9) | Out-Null
+  [WcbFileHelperWin32]::SetForegroundWindow($Process.MainWindowHandle) | Out-Null
+  Start-Sleep -Milliseconds 350
+
+  try {
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle($Process.MainWindowHandle)
+    $condition = New-Object System.Windows.Automation.PropertyCondition `
+      ([System.Windows.Automation.AutomationElement]::AutomationIdProperty), 'chat_input_field'
+    $input = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+    if ($input) {
+      $rect = $input.Current.BoundingRectangle
+      $x = [int]($rect.X + ($rect.Width / 2))
+      $y = [int]($rect.Y + ($rect.Height / 2))
+      [WcbFileHelperWin32]::SetCursorPos($x, $y) | Out-Null
+      Start-Sleep -Milliseconds 100
+      [WcbFileHelperWin32]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+      Start-Sleep -Milliseconds 50
+      [WcbFileHelperWin32]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+      Start-Sleep -Milliseconds 250
+      return
+    }
+  } catch {
+    Write-JsonLine @{ event = 'input_focus_fallback'; message = $_.Exception.Message; time = (Get-Date).ToString('o') }
+  }
+
+  $rect = New-Object WcbFileHelperWin32+RECT
+  [WcbFileHelperWin32]::GetWindowRect($Process.MainWindowHandle, [ref]$rect) | Out-Null
+  $width = $rect.Right - $rect.Left
+  $x = $rect.Left + [int]($width * 0.45)
+  $y = $rect.Bottom - 95
+  [WcbFileHelperWin32]::SetCursorPos($x, $y) | Out-Null
+  Start-Sleep -Milliseconds 100
+  [WcbFileHelperWin32]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+  Start-Sleep -Milliseconds 50
+  [WcbFileHelperWin32]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+  Start-Sleep -Milliseconds 250
+}
+
 function Test-MessageText {
   param([string]$Text)
   if ([string]::IsNullOrWhiteSpace($Text)) { return $false }
@@ -129,20 +170,7 @@ function ConvertTo-Counts {
 function Send-FileHelperText {
   param($Process, [string]$Text)
 
-  $rect = New-Object WcbFileHelperWin32+RECT
-  [WcbFileHelperWin32]::ShowWindow($Process.MainWindowHandle, 9) | Out-Null
-  [WcbFileHelperWin32]::SetForegroundWindow($Process.MainWindowHandle) | Out-Null
-  Start-Sleep -Milliseconds 350
-  [WcbFileHelperWin32]::GetWindowRect($Process.MainWindowHandle, [ref]$rect) | Out-Null
-  $width = $rect.Right - $rect.Left
-  $x = $rect.Left + [int]($width * 0.45)
-  $y = $rect.Bottom - 95
-  [WcbFileHelperWin32]::SetCursorPos($x, $y) | Out-Null
-  Start-Sleep -Milliseconds 100
-  [WcbFileHelperWin32]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
-  Start-Sleep -Milliseconds 50
-  [WcbFileHelperWin32]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
-  Start-Sleep -Milliseconds 250
+  Focus-FileHelperInput -Process $Process
   Set-Clipboard -Value $Text
   [System.Windows.Forms.SendKeys]::SendWait('^v')
   Start-Sleep -Milliseconds 300
@@ -157,20 +185,7 @@ function Send-FileHelperFile {
     return
   }
 
-  $rect = New-Object WcbFileHelperWin32+RECT
-  [WcbFileHelperWin32]::ShowWindow($Process.MainWindowHandle, 9) | Out-Null
-  [WcbFileHelperWin32]::SetForegroundWindow($Process.MainWindowHandle) | Out-Null
-  Start-Sleep -Milliseconds 350
-  [WcbFileHelperWin32]::GetWindowRect($Process.MainWindowHandle, [ref]$rect) | Out-Null
-  $width = $rect.Right - $rect.Left
-  $x = $rect.Left + [int]($width * 0.45)
-  $y = $rect.Bottom - 95
-  [WcbFileHelperWin32]::SetCursorPos($x, $y) | Out-Null
-  Start-Sleep -Milliseconds 100
-  [WcbFileHelperWin32]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
-  Start-Sleep -Milliseconds 50
-  [WcbFileHelperWin32]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
-  Start-Sleep -Milliseconds 250
+  Focus-FileHelperInput -Process $Process
 
   $files = New-Object System.Collections.Specialized.StringCollection
   [void]$files.Add((Resolve-Path -LiteralPath $FilePath).Path)
