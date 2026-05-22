@@ -80,7 +80,7 @@ function Get-VisibleMessageTexts {
 
   $root = [System.Windows.Automation.AutomationElement]::FromHandle($Process.MainWindowHandle)
   $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
-  $items = New-Object System.Collections.Generic.List[string]
+  $items = New-Object System.Collections.Generic.List[object]
 
   function Walk-RawElement {
     param($Element, [int]$Depth)
@@ -89,7 +89,12 @@ function Get-VisibleMessageTexts {
     if ($type -eq 'ControlType.ListItem') {
       $name = [string]$Element.Current.Name
       if (Test-MessageText $name) {
-        $items.Add($name.Trim())
+        $rect = $Element.Current.BoundingRectangle
+        $items.Add([pscustomobject]@{
+          Text = $name.Trim()
+          X = [double]$rect.X
+          Y = [double]$rect.Y
+        })
       }
     }
     $child = $walker.GetFirstChild($Element)
@@ -100,7 +105,7 @@ function Get-VisibleMessageTexts {
   }
 
   Walk-RawElement $root 0
-  return @($items)
+  return @($items | Sort-Object Y, X | ForEach-Object { $_.Text })
 }
 
 function Focus-FileHelperInput {
@@ -152,6 +157,7 @@ function Test-MessageText {
   if ($value -eq $ExpandLabel) { return $false }
   if ($value -match '^\d{1,2}:\d{2}$') { return $false }
   if ($value -match '^\d{4}[-/]\d{1,2}[-/]\d{1,2}') { return $false }
+  if ($value -match '\[WCB\]') { return $false }
   if ($value -match '^\s*/?\[WCB\]') { return $false }
   if ($value.StartsWith($ReplyPrefix)) { return $false }
   return $true
@@ -165,6 +171,22 @@ function ConvertTo-Counts {
     $counts[$text]++
   }
   return $counts
+}
+
+function Get-NewVisibleTexts {
+  param([string[]]$Texts, $PreviousCounts)
+
+  $seenCounts = @{}
+  $newTexts = New-Object System.Collections.Generic.List[string]
+  foreach ($text in $Texts) {
+    if (-not $seenCounts.ContainsKey($text)) { $seenCounts[$text] = 0 }
+    $seenCounts[$text]++
+    $oldCount = if ($PreviousCounts.ContainsKey($text)) { [int]$PreviousCounts[$text] } else { 0 }
+    if ([int]$seenCounts[$text] -gt $oldCount) {
+      $newTexts.Add($text)
+    }
+  }
+  return @($newTexts)
 }
 
 function Send-FileHelperText {
@@ -253,18 +275,16 @@ while ($true) {
       continue
     }
 
-    foreach ($text in @($currentCounts.Keys)) {
-      $oldCount = if ($previousCounts.ContainsKey($text)) { [int]$previousCounts[$text] } else { 0 }
-      $newCount = if ($currentCounts.ContainsKey($text)) { [int]$currentCounts[$text] } else { 0 }
-      if ($newCount -le $oldCount) { continue }
-
-      for ($i = 0; $i -lt ($newCount - $oldCount); $i++) {
-        $nowMs = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
-        $lastProcessedMs = if ($recentProcessed.ContainsKey($text)) { [int64]$recentProcessed[$text] } else { 0 }
-        if (($nowMs - $lastProcessedMs) -lt 30000) {
-          Write-JsonLine @{ event = 'deduped'; text = $text; time = (Get-Date).ToString('o') }
-          continue
-        }
+    $handledMessage = $false
+    $newTexts = @(Get-NewVisibleTexts -Texts $texts -PreviousCounts $previousCounts)
+    if ($newTexts.Count -gt 0) {
+      $text = [string]$newTexts[$newTexts.Count - 1]
+      $nowMs = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
+      $lastProcessedMs = if ($recentProcessed.ContainsKey($text)) { [int64]$recentProcessed[$text] } else { 0 }
+      if (($nowMs - $lastProcessedMs) -lt 30000) {
+        Write-JsonLine @{ event = 'deduped'; text = $text; time = (Get-Date).ToString('o') }
+        $handledMessage = $true
+      } else {
         $recentProcessed[$text] = $nowMs
         foreach ($key in @($recentProcessed.Keys)) {
           if (($nowMs - [int64]$recentProcessed[$key]) -gt 300000) {
@@ -301,10 +321,16 @@ while ($true) {
           Send-FileHelperFile -Process $process -FilePath $file
         }
         Write-JsonLine @{ event = 'reply_sent'; sourceText = $text; reply = $reply; time = (Get-Date).ToString('o') }
+        $handledMessage = $true
       }
     }
 
-    $previousCounts = $currentCounts
+    if ($handledMessage) {
+      Start-Sleep -Milliseconds 700
+      $previousCounts = ConvertTo-Counts (Get-VisibleMessageTexts -Process $process)
+    } else {
+      $previousCounts = $currentCounts
+    }
   } catch {
     Write-JsonLine @{ event = 'error'; message = $_.Exception.Message; time = (Get-Date).ToString('o') }
   }

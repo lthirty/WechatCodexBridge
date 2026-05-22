@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { assertAllowedPath } from "./security.js";
 import { findLatestFiles } from "./file-finder.js";
-import { findCodexThread, listCodexThreads } from "./codex-index.js";
+import { findCodexThread, listCodexProjects, listCodexThreads } from "./codex-index.js";
 
 export class Router {
   constructor({ config, store, codexRunner, wechatClient }) {
@@ -90,21 +90,17 @@ export class Router {
     this.store.setActiveTarget(session.id, thread.alias);
     this.store.save("enter");
     const target = this.store.getActiveTarget(session.id);
-    return this.reply(session.id, [
-      `已进入 Codex 线程：${target.alias}`,
-      `之后文件传输助手中的普通消息会通过 Codex CLI resume 发送到该线程。`,
-      `cwd: ${target.cwd}`,
-      `thread: ${target.threadId}`
-    ].join("\n"));
+    return this.reply(session.id, `已进入 Codex 线程：${target.alias}`);
   }
 
   async list(session) {
     const targets = listCodexThreads();
-    if (!targets.length) {
-      return this.reply(session.id, "没有找到 Codex App 线程索引。");
+    const projects = listCodexProjects();
+    if (!targets.length && !projects.length) {
+      return this.reply(session.id, "没有找到 Codex App 项目和线程索引。");
     }
     const activeTarget = this.store.getActiveTarget(session.id);
-    return this.reply(session.id, formatThreadTree(targets, activeTarget));
+    return this.reply(session.id, formatThreadTree(targets, activeTarget, projects));
   }
 
   async status(session) {
@@ -283,51 +279,83 @@ function helpText() {
   ].join("\n");
 }
 
-function formatThreadTree(targets, activeTarget) {
-  const groups = groupTargetsByProject(targets);
+function formatThreadTree(targets, activeTarget, projects = []) {
+  const groups = groupTargetsByProject(targets, projects);
   for (const group of groups.values()) {
     group.hasActive = group.targets.some((target) => isActiveTarget(target, activeTarget));
   }
-  const sortedGroups = [...groups.values()].sort((a, b) => {
-    const activeDiff = Number(b.hasActive) - Number(a.hasActive);
-    if (activeDiff) return activeDiff;
-    const pinnedDiff = Number(b.pinned) - Number(a.pinned);
-    if (pinnedDiff) return pinnedDiff;
+  const projectGroups = [...groups.values()].filter((group) => !group.projectless);
+  const pinnedGroups = sortProjectGroups(projectGroups.filter((group) => group.pinned));
+  const otherGroups = sortProjectGroups(projectGroups.filter((group) => !group.pinned));
+  const projectlessGroups = [...groups.values()].filter((group) => group.projectless);
+
+  const lines = ["Codex 项目/线程"];
+  appendGroupSection(lines, "置顶项目", pinnedGroups, activeTarget);
+  appendGroupSection(lines, "其他项目", otherGroups, activeTarget);
+  appendGroupSection(lines, "独立线程", projectlessGroups, activeTarget);
+  lines.push("", "进入线程：/ent 项目名/线程名 或 /ent 线程名");
+  return lines.join("\n");
+}
+
+function sortProjectGroups(groups) {
+  return groups.sort((a, b) => {
     const orderDiff = a.order - b.order;
     if (orderDiff) return orderDiff;
     return Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0);
   });
-
-  const lines = ["Codex 项目/线程"];
-  for (let groupIndex = 0; groupIndex < sortedGroups.length; groupIndex += 1) {
-    const group = sortedGroups[groupIndex];
-    if (groupIndex > 0) {
-      lines.push("");
-    }
-    const projectPrefix = group.hasActive ? "当前 " : group.pinned ? "置顶 " : "";
-    lines.push(`${projectPrefix}${group.name}`);
-
-    const threads = group.targets.sort((a, b) => {
-      const activeDiff = Number(isActiveTarget(b, activeTarget)) - Number(isActiveTarget(a, activeTarget));
-      if (activeDiff) return activeDiff;
-      const pinnedDiff = Number(b.threadPinned) - Number(a.threadPinned);
-      if (pinnedDiff) return pinnedDiff;
-      return Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0);
-    });
-    for (let index = 0; index < threads.length; index += 1) {
-      const target = threads[index];
-      const branch = index === threads.length - 1 ? "└─" : "├─";
-      const active = isActiveTarget(target, activeTarget) ? "当前 " : "";
-      const pinned = target.threadPinned ? "置顶 " : "";
-      lines.push(`${branch} ${active}${pinned}${target.threadName}`);
-    }
-  }
-  lines.push("", "进入线程：/ent 项目名/线程名");
-  return lines.join("\n");
 }
 
-function groupTargetsByProject(targets) {
+function appendGroupSection(lines, title, groups, activeTarget) {
+  if (!groups.length) {
+    return;
+  }
+  if (lines.length > 1) {
+    lines.push("");
+  }
+  lines.push(title);
+  if (title === "独立线程") {
+    for (const group of groups) {
+      appendThreadLines(lines, group, activeTarget);
+    }
+    return;
+  }
+  for (const group of groups) {
+    lines.push(group.hasActive ? `当前 ${group.name}` : group.name);
+    appendThreadLines(lines, group, activeTarget);
+  }
+}
+
+function appendThreadLines(lines, group, activeTarget) {
+  const threads = group.targets.sort((a, b) => {
+    const activeDiff = Number(isActiveTarget(b, activeTarget)) - Number(isActiveTarget(a, activeTarget));
+    if (activeDiff) return activeDiff;
+    const pinnedDiff = Number(b.threadPinned) - Number(a.threadPinned);
+    if (pinnedDiff) return pinnedDiff;
+    return Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0);
+  });
+  for (let index = 0; index < threads.length; index += 1) {
+    const target = threads[index];
+    const branch = index === threads.length - 1 ? "└─" : "├─";
+    const active = isActiveTarget(target, activeTarget) ? "当前 " : "";
+    const pinned = target.threadPinned ? "置顶 " : "";
+    lines.push(`${branch} ${active}${pinned}${target.threadName}`);
+  }
+}
+
+function groupTargetsByProject(targets, projects = []) {
   const groups = new Map();
+  for (const project of projects) {
+    groups.set(project.key, {
+      key: project.key,
+      name: project.name,
+      pinned: Boolean(project.pinned),
+      order: project.order ?? Number.MAX_SAFE_INTEGER,
+      projectless: false,
+      updatedAt: null,
+      hasActive: false,
+      targets: []
+    });
+  }
   for (const target of targets) {
     const key = target.projectKey || target.projectName || "unknown";
     if (!groups.has(key)) {

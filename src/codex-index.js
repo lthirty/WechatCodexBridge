@@ -48,6 +48,22 @@ export function listCodexThreads(codexHome = path.join(os.homedir(), ".codex")) 
     .sort((a, b) => Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0));
 }
 
+export function listCodexProjects(codexHome = path.join(os.homedir(), ".codex")) {
+  const sidebar = readCodexSidebarState(codexHome);
+  return sidebar.projectOrder
+    .filter((projectPath) => !isDriveRoot(normalizePath(projectPath)))
+    .map((projectPath) => {
+      const normalizedProject = normalizePath(projectPath);
+      return {
+        key: normalizedProject,
+        name: displayProjectName(projectPath),
+        path: projectPath,
+        pinned: sidebar.pinnedProjectIds.has(normalizedProject),
+        order: sidebar.projectOrderMap.get(normalizedProject) ?? Number.MAX_SAFE_INTEGER
+      };
+    });
+}
+
 export function findCodexThread(query, codexHome) {
   const normalized = normalize(query);
   const threads = listCodexThreads(codexHome);
