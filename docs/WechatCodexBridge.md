@@ -609,6 +609,8 @@ F:\01.AI\20.WechatCodexBridge\backups
   - `pinned-thread-ids`：置顶线程在项目内优先。
   - `project-order`：项目顺序尽量贴近 Codex Desktop 侧边栏。
 - 输出会合并列出 Codex Desktop 本地记录的全部项目：`state_5.sqlite` 线程库、`session_index.jsonl`、`config.toml` 项目段和 `.codex-global-state.json` 侧边栏状态都会参与索引。
+- `/list` 每次执行都会重新读取 Codex 本地状态，不缓存项目列表；删除或归档项目/线程后，下一次 `/ls` 应直接反映变化。
+- 已归档线程按 `state_5.sqlite.threads.archived=1` 过滤，不再显示；`config.toml` 只用于辅助识别项目父目录，不会单独把历史项目列出来。
 - 项目顺序仍优先参考 Codex Desktop：先列置顶项目，再列其他项目。
 - 没有线程的项目也会显示，并标记为 `暂无对话`。
 - 独立线程单独放在“独立线程”下，不归到任何项目。
@@ -648,7 +650,23 @@ Codex 项目/线程
 - `17.AIRemoteCtl` 这类暂无线程的项目会显示 `暂无对话`。
 - `/ls` 发送后观察日志未出现自激循环。
 
-## 24. 版本记录
+## 24. 未归档动态列表验证记录
+
+验证时间：`2026-05-22 10:02`
+
+验证方式：重启 `WechatCodexBridge` 后，直接调用本地 `/wechat/message` 接口发送 `/ls`。
+
+验证结果：
+
+- `npm run check` 通过。
+- `/ls` 每次调用都重新读取 Codex 本地 SQLite 和侧边栏状态，不使用持久缓存。
+- `state_5.sqlite.threads.archived=1` 的线程不再显示。
+- `config.toml` 中的历史项目段不再单独显示为 `暂无对话`。
+- 已确认 `03.GPTSoVITSMini` 下只显示未归档线程，不再显示已归档的 `参考 第二条内容...`、`把vs code设置成中文菜单`、`同步所有` 等线程。
+- 已确认 `F:` 根目录分组被过滤。
+- 服务保持运行，删除或归档项目/线程后，下一次 `/ls` 会重新读取状态并反映变化。
+
+## 25. 版本记录
 
 | 日期 | 版本 / 节点 | 说明 |
 |---|---|---|
@@ -667,3 +685,4 @@ Codex 项目/线程
 | 2026-05-22 | 0.3.6 | `/list` 改为按项目分组的树形列表，只显示项目名和线程名，并按 Codex Desktop 置顶和侧边栏顺序优先显示 |
 | 2026-05-22 | 0.3.7 | `/list` 补齐全部项目并单列独立线程；`/ent` 回复压缩为一行；GUI 适配器处理后重新基准化可见消息，避免旧消息或 `[WCB]` 回复被再次触发 |
 | 2026-05-22 | 0.3.8 | `/list` 进一步读取 Codex `state_5.sqlite` 和 `config.toml`，补齐 `03.GPTSoVITSMini`、`01.AIAgent`、`17.AIRemoteCtl` 等侧边栏项目；长线程名在微信中自动截断显示 |
+| 2026-05-22 | 0.3.9 | `/list` 改为动态读取未归档状态：过滤 SQLite 已归档线程，不再把 `config.toml` 历史项目单独列出，删除或归档后的下一次 `/ls` 会更新 |
